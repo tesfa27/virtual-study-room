@@ -1,0 +1,34 @@
+### 1. Register New User
+# POST /api/auth/register/
+
+POST http://localhost:8000/api/auth/register/
+Content-Type: application/json
+
+{
+    "username": "study_buddy_1",
+    "email": "user1@focus.io",
+    "password": "StrongPassword123!",
+    "password2": "StrongPassword123!"
+}
+
+### 2. Login User and Obtain JWT Tokens
+# POST /api/auth/login/
+
+POST http://localhost:8000/api/auth/login/
+Content-Type: application/json
+
+{
+    "email": "user1@focus.io",
+    "password": "StrongPassword123!"
+}
+
+### 3. Refresh Access Token (Requires copying refresh token from step 2)
+# POST /api/auth/token/refresh/
+
+POST http://localhost:8000/api/auth/token/refresh/
+Content-Type: application/json
+
+{
+    "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsImV4cCI6MTc2NTg5MDE4MCwiaWF0IjoxNzY1ODAzNzgwLCJqdGkiOiI5YzIzMDZhYzRhMzY0MGVkOWM5ZGE0M2RjZWI2YThjNSIsInVzZXJfaWQiOiIxIn0.p755gFA3nm2qnzznJc15-qa4NgNWYc_vaIpP0C5HRCI" 
+}
+
