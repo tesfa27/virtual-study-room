@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  # 1. Database Service (PostgreSQL)
+  db:
+    image: postgres:15-alpine
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=${DB_NAME}
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+    networks:
+      - main_network
+
+  # 2. Redis Service (Cache & WebSockets Layer)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379" # Exposed so you can inspect it locally if needed
+    networks:
+      - main_network
+
+  # 3. Backend Service (Django)
+  backend:
+    build: ./backend
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - ./backend:/app # Hot-reloading: changes in local folder reflect in container
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      - db
+      - redis
+    networks:
+      - main_network
+
+  # 4. Frontend Service (React + Vite)
+  frontend:
+    build: ./frontend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules # Prevents local node_modules from overwriting container's
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:8000
+      - VITE_WS_URL=ws://localhost:8000
+    depends_on:
+      - backend
+    networks:
+      - main_network
+
+volumes:
+  postgres_data: # Persist DB data even if containers are destroyed
+
+networks:
+  main_network:
+    driver: bridge
