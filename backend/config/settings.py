@@ -13,11 +13,10 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
-
-
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+load_dotenv(BASE_DIR.parent / '.env')
 
 
 # Quick-start development settings - unsuitable for production
@@ -46,10 +45,13 @@ INSTALLED_APPS = [
     'channels',
     'corsheaders', # Important for frontend-backend communication
     # Your custom apps (will be added later)
-    # 'users',
-    # 'rooms',
+    'users',
+    'rooms',
     # 'chat',
 ]
+
+# Set the custom user model (CRITICAL for Django projects)
+AUTH_USER_MODEL = 'users.CustomUser'
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -126,6 +128,21 @@ AUTH_PASSWORD_VALIDATORS = [
         "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
     },
 ]
+
+
+SIMPLE_JWT = {
+    # 1. Access Token Lifetime (Short-lived for Security)
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=5),  # Recommended: 5 to 15 minutes
+
+    # 2. Refresh Token Lifetime (Long-lived for UX)
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),   # Recommended: 7 to 60 days
+
+    # Optional: Other common settings
+    'ROTATE_REFRESH_TOKENS': True, # Enhances security upon refresh
+    'BLACKLIST_AFTER_ROTATION': True,
+    'ALGORITHM': 'HS256',
+    'SIGNING_KEY': SECRET_KEY, # Uses your Django Secret Key
+}
 
 
 # Internationalization
