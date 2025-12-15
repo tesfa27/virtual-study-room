@@ -19,7 +19,7 @@ Content-Type: application/json
 
 {
     "email": "user1@focus.io",
-    "password": "StrongPassword123!"
+    "password": "NewStrongPassword456!"
 }
 
 ### 3. Refresh Access Token (Requires copying refresh token from step 2)
@@ -37,6 +37,38 @@ Content-Type: application/json
 # Requires a valid Access Token in the 'access_token' cookie
 
 GET http://localhost:8000/api/auth/me/
-Cookie: access_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzY1ODA1NjI4LCJpYXQiOjE3NjU4MDUzMjksImp0aSI6ImE2MmJlN2Q4YzRlZDQzNTRiMTZlYzNjMDM5MTljYzAwIiwidXNlcl9pZCI6IjEifQ.m2gVppbGwEh3tfTgTE87onwjM9W_7x5mX-Tg1OS_Hpc
+Cookie: access_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzY1ODA2NjIwLCJpYXQiOjE3NjU4MDYzMjAsImp0aSI6ImFiYzc0ZmY3NGM1MTQ4YTM5NGI0YjZiOTllY2Y1NTFkIiwidXNlcl9pZCI6IjEifQ.Pvl8QbNwXuhBimip1toJbq4tC20adjBAoOH3PeZq-Fs
+
+### 5. Logout (Clear Cookies & Blacklist Token)
+# POST /api/auth/logout/
+# Requires a valid Access Token cookie to authenticate the user before logging out
+
+POST http://localhost:8000/api/auth/logout/
+Cookie: access_token=<YOUR_ACCESS_TOKEN_HERE>
+
+
+### 6. Forgot Password (Trigger Email/Console Log)
+# POST /api/auth/forgot-password/
+
+POST http://localhost:8000/api/auth/forgot-password/
+Content-Type: application/json
+
+{
+    "email": "user1@focus.io"
+}
+
+### 7. Reset Password (Requires uidb64 and token from step 6 output)
+# POST /api/auth/reset-password/
+
+POST http://localhost:8000/api/auth/reset-password/
+Content-Type: application/json
+
+{
+    "uidb64": "MQ",
+    "token": "d0uumk-102882291cd64aae5a44f04469ce43b7",
+    "password": "NewStrongPassword456!",
+    "password2": "NewStrongPassword456!"
+}
+
 
 
