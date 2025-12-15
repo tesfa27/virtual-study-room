@@ -1,0 +1,9 @@
+Django
+djangorestframework
+django-cors-headers
+psycopg2-binary # PostgreSQL adapter
+daphne # ASGI Server (needed for Channels)
+django-channels
+channels-redis
+gunicorn # WSGI server for production (Good practice to include)
+python-dotenv # For loading settings from the .env file

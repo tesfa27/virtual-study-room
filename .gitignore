@@ -1,0 +1,30 @@
+# ------------------------------------
+# Global Exclusions
+# ------------------------------------
+.DS_Store
+.vscode/
+
+# ------------------------------------
+# Environment/Secrets
+# ------------------------------------
+# NEVER commit your secrets/passwords!
+.env
+.venv
+venv/
+
+# ------------------------------------
+# Docker Exclusions
+# ------------------------------------
+# Ignore temporary build context
+.dockerignore
+
+# Persistent volumes (Postgres data)
+volumes/
+postgres_data/
+
+# ------------------------------------
+# Logs and other generated files
+# ------------------------------------
+*.log
+*.sqlite3
+media/*
