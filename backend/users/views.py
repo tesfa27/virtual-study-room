@@ -57,3 +57,10 @@ class RegisterView(generics.CreateAPIView):
         headers = self.get_success_headers(serializer.data)
         # Optional: Log the user in immediately after registration (not shown here)
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
+class ManageUserView(generics.RetrieveAPIView):
+    serializer_class = UserSerializer
+    permission_classes = (permissions.IsAuthenticated,)
+
+    def get_object(self):
+        return self.request.user
