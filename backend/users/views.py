@@ -1,13 +1,49 @@
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
-from .serializers import RegisterSerializer
+from .serializers import RegisterSerializer, UserSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.settings import api_settings
 from .models import CustomUser
 
 # Use the default SimpleJWT view for login, which handles token generation
 class CustomTokenObtainPairView(TokenObtainPairView):
-    # You can customize the serializer here if you want to return extra user info
-    pass
+    def post(self, request, *args, **kwargs):
+        # 1. Call the base class logic to get the tokens
+        response = super().post(request, *args, **kwargs)
+
+        if response.status_code == 200:
+            access_token = response.data.get('access')
+            refresh_token = response.data.get('refresh')
+            
+            # --- CRITICAL: Remove tokens from the JSON response ---
+            del response.data['access']
+            del response.data['refresh']
+
+            # --- 2. Set the Access Token (JS-readable) ---
+            # NOTE: NOT HttpOnly, so JS can read and send in headers.
+            response.set_cookie(
+                key='access_token',
+                value=access_token,
+                httponly=False,          # JS must be able to read this!
+                secure=True,             # Use HTTPS in production
+                samesite='Lax',
+                max_age=api_settings.ACCESS_TOKEN_LIFETIME.total_seconds(), # Match expiry
+            )
+
+            # --- 3. Set the Refresh Token (HttpOnly for Security) ---
+            response.set_cookie(
+                key='refresh_token',
+                value=refresh_token,
+                httponly=True,           # Prevents client-side JS access (XSS defense)
+                secure=True,             # Use HTTPS in production
+                samesite='Lax',
+                max_age=api_settings.REFRESH_TOKEN_LIFETIME.total_seconds(), # Match expiry
+            )
+
+            # 4. Return a simple success message
+            response.data['message'] = 'Login successful' 
+            
+        return response
 
 class RegisterView(generics.CreateAPIView):
     queryset = CustomUser.objects.all()
