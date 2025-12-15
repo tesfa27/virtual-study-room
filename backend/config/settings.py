@@ -118,6 +118,12 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'users.authentication.CustomJWTAuthentication',
+    ),
+}
+
 SIMPLE_JWT = {
     # 1. Access Token Lifetime (Short-lived for Security)
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=5),  # Recommended: 5 to 15 minutes
@@ -130,6 +136,9 @@ SIMPLE_JWT = {
     'BLACKLIST_AFTER_ROTATION': True,
     'ALGORITHM': 'HS256',
     'SIGNING_KEY': SECRET_KEY, # Uses your Django Secret Key
+    
+    # Custom: Cookie Name
+    'AUTH_COOKIE': 'access_token',
 }
 
 

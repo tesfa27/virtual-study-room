@@ -32,3 +32,11 @@ Content-Type: application/json
     "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsImV4cCI6MTc2NTg5MDE4MCwiaWF0IjoxNzY1ODAzNzgwLCJqdGkiOiI5YzIzMDZhYzRhMzY0MGVkOWM5ZGE0M2RjZWI2YThjNSIsInVzZXJfaWQiOiIxIn0.p755gFA3nm2qnzznJc15-qa4NgNWYc_vaIpP0C5HRCI" 
 }
 
+### 4. Get Current User Profile (Protected)
+# GET /api/auth/me/
+# Requires a valid Access Token in the 'access_token' cookie
+
+GET http://localhost:8000/api/auth/me/
+Cookie: access_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzY1ODA1NjI4LCJpYXQiOjE3NjU4MDUzMjksImp0aSI6ImE2MmJlN2Q4YzRlZDQzNTRiMTZlYzNjMDM5MTljYzAwIiwidXNlcl9pZCI6IjEifQ.m2gVppbGwEh3tfTgTE87onwjM9W_7x5mX-Tg1OS_Hpc
+
+
