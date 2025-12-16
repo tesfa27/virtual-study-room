@@ -1,4 +1,4 @@
-version: '3.8'
+
 
 services:
   # 1. Database Service (PostgreSQL)
@@ -14,6 +14,11 @@ services:
       - "5432:5432" # Exposed for local development
     networks:
       - main_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   # 2. Redis Service (Cache & WebSockets Layer)
   redis:
@@ -37,8 +42,10 @@ services:
       - DB_HOST=db
       - REDIS_HOST=redis
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
     networks:
       - main_network
 
