@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getCurrentUser, logoutUser, refreshToken, loginUser } from "../api/auth";
-import type { User, LoginRequest } from "../api/auth";
+import { getCurrentUser, logoutUser, refreshToken, loginUser, registerUser } from "../api/auth";
+import type { User, LoginRequest, RegisterRequest } from "../api/auth";
 
 export const useAuth = (options: { fetchUser?: boolean } = { fetchUser: true }) => {
     const queryClient = useQueryClient();
@@ -35,6 +35,22 @@ export const useAuth = (options: { fetchUser?: boolean } = { fetchUser: true }) 
         },
         onSuccess: () => {
             // Invalidate user query to trigger refetch
+            queryClient.invalidateQueries({ queryKey: ["auth", "user"] });
+        },
+    });
+
+    // Register mutation
+    const registerMutation = useMutation({
+        mutationFn: async (data: RegisterRequest) => {
+            return await registerUser(data);
+        },
+        onSuccess: () => {
+            // After register, we might want to login automatically or just redirect to login
+            // For now, let's assume we redirect to login (or component handles it)
+            // But if we want to auto-login, we'd need to chain that. 
+            // Often registration returns the user or tokens. Our backend might just return created user data.
+            // If backend doesn't auto-login, user needs to login.
+            // Let's just invalidate for safety.
             queryClient.invalidateQueries({ queryKey: ["auth", "user"] });
         },
     });
@@ -83,6 +99,7 @@ export const useAuth = (options: { fetchUser?: boolean } = { fetchUser: true }) 
         isAuthenticated: !!user && !isError,
         isError,
         login: loginMutation.mutateAsync,
+        register: registerMutation.mutateAsync,
         logout: () => logoutMutation.mutate(),
         refreshToken: handleTokenRefresh,
         refetch,
