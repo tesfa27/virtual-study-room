@@ -19,7 +19,7 @@ Content-Type: application/json
 
 {
     "email": "user1@focus.io",
-    "password": "NewStrongPassword456!"
+    "password": "StrongPassword123!"
 }
 
 ### 3. Refresh Access Token (Requires copying refresh token from step 2)

@@ -102,10 +102,11 @@ class ForgotPasswordView(generics.GenericAPIView):
             token = PasswordResetTokenGenerator().make_token(user)
             
             # Construct the link (In production, send this via email)
-            # Assuming frontend handles this route: /reset-password/<uidb64>/<token>
-            current_site = get_current_site(request=request).domain
-            relativeLink = reverse('password_reset_confirm', kwargs={'uidb64': uidb64, 'token': token})
-            absurl = 'http://'+current_site + relativeLink
+            # Frontend URL construction
+            # We want: http://localhost:5173/reset-password/<uidb64>/<token>
+            # For now in dev we hardcode localhost:5173 or read from headers if possible
+            frontend_host = request.META.get('HTTP_ORIGIN', 'http://localhost:5173')
+            absurl = f"{frontend_host}/reset-password/{uidb64}/{token}"
             
             # For Development: Print to console
             print(f"\n[RESET PASSWORD LINK]: {absurl}\n")
