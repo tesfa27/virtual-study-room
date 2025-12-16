@@ -72,3 +72,32 @@ Content-Type: application/json
 
 
 
+### 8. Create a New Room (Protected)
+# POST /api/rooms/
+# Requires: Access Token
+POST http://localhost:8000/api/rooms/
+Content-Type: application/json
+Cookie: access_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzY1ODkyNjY5LCJpYXQiOjE3NjU4OTIzNjksImp0aSI6IjU2Mjg4MjdhNjNiYTQxYWU5NzkzZWJkYmMxNDg2ZWQ2IiwidXNlcl9pZCI6IjEifQ.DD_pGiVPT66PRDT1KSjAqyFB3EjuFegH4AYHpfVOSUc
+
+{
+    "name": "Python Co-working",
+    "description": "Quiet focus room for Python developers",
+    "topic": "Python",
+    "capacity": 10,
+    "is_private": false
+}
+
+### 9. List All Rooms
+# GET /api/rooms/
+# Requires: Access Token (or ReadOnly if Configured)
+GET http://localhost:8000/api/rooms/
+Content-Type: application/json
+Cookie: access_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzY1ODkyNjY5LCJpYXQiOjE3NjU4OTIzNjksImp0aSI6IjU2Mjg4MjdhNjNiYTQxYWU5NzkzZWJkYmMxNDg2ZWQ2IiwidXNlcl9pZCI6IjEifQ.DD_pGiVPT66PRDT1KSjAqyFB3EjuFegH4AYHpfVOSUc
+
+### 10. Get Room Details
+# GET /api/rooms/{room_id}/
+# Replace {room_id} with the UUID returned from Step 8
+GET http://localhost:8000/api/32431574-e901-4a53-914f-8175e8f6d257/
+Content-Type: application/json
+Cookie: access_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzY1ODkyNjY5LCJpYXQiOjE3NjU4OTIzNjksImp0aSI6IjU2Mjg4MjdhNjNiYTQxYWU5NzkzZWJkYmMxNDg2ZWQ2IiwidXNlcl9pZCI6IjEifQ.DD_pGiVPT66PRDT1KSjAqyFB3EjuFegH4AYHpfVOSUc
+
