@@ -1,5 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getCurrentUser, logoutUser, refreshToken, loginUser, registerUser } from "../api/auth";
+import {
+    getCurrentUser, logoutUser, refreshToken, loginUser, registerUser,
+    requestPasswordReset, validateResetToken, resetPassword
+} from "../api/auth";
 import type { User, LoginRequest, RegisterRequest } from "../api/auth";
 
 export const useAuth = (options: { fetchUser?: boolean } = { fetchUser: true }) => {
@@ -55,6 +58,20 @@ export const useAuth = (options: { fetchUser?: boolean } = { fetchUser: true }) 
         },
     });
 
+    // Forgot Password mutation
+    const forgotPasswordMutation = useMutation({
+        mutationFn: async (email: string) => {
+            return await requestPasswordReset(email);
+        }
+    });
+
+    // Reset Password mutation
+    const resetPasswordMutation = useMutation({
+        mutationFn: async (data: any) => {
+            return await resetPassword(data);
+        }
+    });
+
     // Logout mutation
     const logoutMutation = useMutation({
         mutationFn: async () => {
@@ -101,6 +118,9 @@ export const useAuth = (options: { fetchUser?: boolean } = { fetchUser: true }) 
         login: loginMutation.mutateAsync,
         register: registerMutation.mutateAsync,
         logout: () => logoutMutation.mutate(),
+        requestPasswordReset: forgotPasswordMutation.mutateAsync,
+        resetPassword: resetPasswordMutation.mutateAsync,
+        validateResetToken, // Directly expose the async function as it might not need mutation wrapper for simple check (or useQuery if fetching data)
         refreshToken: handleTokenRefresh,
         refetch,
     };
