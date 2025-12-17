@@ -4,6 +4,7 @@ import RegisterPage from "./pages/RegisterPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import Dashboard from "./pages/Dashboard";
+import RoomPage from "./pages/RoomPage";
 import { AuthGuard } from "./components/AuthGuard";
 
 function App() {
@@ -22,6 +23,14 @@ function App() {
           element={
             <AuthGuard>
               <Dashboard />
+            </AuthGuard>
+          }
+        />
+        <Route
+          path="/room/:id"
+          element={
+            <AuthGuard>
+              <RoomPage />
             </AuthGuard>
           }
         />
