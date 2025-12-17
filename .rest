@@ -77,13 +77,13 @@ Content-Type: application/json
 # Requires: Access Token
 POST http://localhost:8000/api/rooms/
 Content-Type: application/json
-Cookie: access_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzY1ODkyNjY5LCJpYXQiOjE3NjU4OTIzNjksImp0aSI6IjU2Mjg4MjdhNjNiYTQxYWU5NzkzZWJkYmMxNDg2ZWQ2IiwidXNlcl9pZCI6IjEifQ.DD_pGiVPT66PRDT1KSjAqyFB3EjuFegH4AYHpfVOSUc
+Cookie: access_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzY1OTU5Mjc4LCJpYXQiOjE3NjU5NTg5NzgsImp0aSI6IjhkNzFmN2QwODhjZTRiYjY4MDk3ODBhNGI2MmNhNDZlIiwidXNlcl9pZCI6IjEifQ.sxKb81n2DFlGrWknlHv8BA3H__jYllQ_zITBDYwdcRo
 
 {
-    "name": "Python Co-working",
-    "description": "Quiet focus room for Python developers",
-    "topic": "Python",
-    "capacity": 10,
+    "name": "Open Source Contributors",
+    "description": "Collaborating on GitHub projects and open source contributions",
+    "topic": "Open Source",
+    "capacity": 20,
     "is_private": false
 }
 

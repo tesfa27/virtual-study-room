@@ -3,17 +3,8 @@ import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
+import Dashboard from "./pages/Dashboard";
 import { AuthGuard } from "./components/AuthGuard";
-
-// Simple Dashboard component for demonstration
-function Dashboard() {
-  return (
-    <div style={{ padding: 20 }}>
-      <h1>Welcome to the Study Room</h1>
-      <p>You are logged in!</p>
-    </div>
-  );
-}
 
 function App() {
   return (
