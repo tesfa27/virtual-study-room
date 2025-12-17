@@ -5,8 +5,14 @@ export interface ChatMessage {
     username: string;
 }
 
+export interface OnlineUser {
+    id: string;
+    username: string;
+}
+
 export const useWebSocket = (roomId: string) => {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
+    const [users, setUsers] = useState<OnlineUser[]>([]); // Presence State
     const [isConnected, setIsConnected] = useState(false);
     const wsRef = useRef<WebSocket | null>(null);
 
@@ -35,7 +41,12 @@ export const useWebSocket = (roomId: string) => {
 
         ws.onmessage = (event) => {
             const data = JSON.parse(event.data);
-            if (data.message) {
+
+            // Handle different message types
+            if (data.type === 'presence_update') {
+                setUsers(data.users);
+            } else if (data.message) {
+                // Default to chat message if 'message' field exists (backwards compat)
                 setMessages((prev) => [...prev, { message: data.message, username: data.username }]);
             }
         };
@@ -43,6 +54,7 @@ export const useWebSocket = (roomId: string) => {
         ws.onclose = () => {
             console.log("WebSocket Disconnected");
             setIsConnected(false);
+            setUsers([]); // Clear users on disconnect
         };
 
         ws.onerror = (error) => {
@@ -62,5 +74,5 @@ export const useWebSocket = (roomId: string) => {
         }
     }, []);
 
-    return { messages, sendMessage, isConnected };
+    return { messages, users, sendMessage, isConnected };
 };

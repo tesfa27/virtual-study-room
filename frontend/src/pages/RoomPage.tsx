@@ -45,7 +45,7 @@ export default function RoomPage() {
 
     // WebSocket Integration - moved to top level
     // Only connect if we have an ID. The hook handles safe disconnection if ID changes/is empty.
-    const { messages, sendMessage, isConnected } = useWebSocket(id || "");
+    const { messages, users, sendMessage, isConnected } = useWebSocket(id || "");
     const [newMessage, setNewMessage] = useState("");
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -140,15 +140,20 @@ export default function RoomPage() {
                     </>
                 ) : (
                     <List>
-                        {/* Placeholder for User List */}
-                        <ListItem>
-                            <Avatar sx={{ mr: 2 }}>{user?.username?.charAt(0).toUpperCase()}</Avatar>
-                            <ListItemText primary={user?.username} secondary="You" />
-                        </ListItem>
-                        <Divider component="li" />
-                        <Typography variant="caption" sx={{ p: 2, display: 'block' }} color="text.secondary">
-                            Real-time user list coming soon
-                        </Typography>
+                        {users.map((u) => (
+                            <ListItem key={u.id}>
+                                <Avatar sx={{ mr: 2 }}>{u.username?.charAt(0).toUpperCase()}</Avatar>
+                                <ListItemText
+                                    primary={u.username}
+                                    secondary={user?.username === u.username ? "You" : "Online"}
+                                />
+                            </ListItem>
+                        ))}
+                        {users.length === 0 && (
+                            <Typography variant="caption" sx={{ p: 2, display: 'block' }} color="text.secondary">
+                                No users online (Connecting...)
+                            </Typography>
+                        )}
                     </List>
                 )}
             </Box>
