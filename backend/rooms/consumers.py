@@ -25,21 +25,28 @@ class RoomConsumer(AsyncWebsocketConsumer):
     async def receive(self, text_data):
         text_data_json = json.loads(text_data)
         message = text_data_json['message']
+        
+        # Get user from scope (populated by JWTAuthMiddleware)
+        user = self.scope.get('user')
+        username = user.username if user and user.is_authenticated else "Anonymous"
 
         # Send message to room group
         await self.channel_layer.group_send(
             self.room_group_name,
             {
                 'type': 'chat_message',
-                'message': message
+                'message': message,
+                'username': username
             }
         )
 
     # Receive message from room group
     async def chat_message(self, event):
         message = event['message']
+        username = event.get('username', 'Anonymous')
 
         # Send message to WebSocket
         await self.send(text_data=json.dumps({
-            'message': message
+            'message': message,
+            'username': username
         }))

@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useRoom } from "../hooks/use-rooms";
 import { useAuth } from "../hooks/use-auth";
+import { useWebSocket } from "../hooks/use-websocket";
 import {
     Box,
     Typography,
@@ -18,7 +19,8 @@ import {
     Container,
     Avatar,
     CircularProgress,
-    Alert
+    Alert,
+    TextField
 } from "@mui/material";
 import {
     MessageSquare,
@@ -40,6 +42,28 @@ export default function RoomPage() {
 
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [activeTab, setActiveTab] = useState<'chat' | 'users'>('chat');
+
+    // WebSocket Integration - moved to top level
+    // Only connect if we have an ID. The hook handles safe disconnection if ID changes/is empty.
+    const { messages, sendMessage, isConnected } = useWebSocket(id || "");
+    const [newMessage, setNewMessage] = useState("");
+    const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    const scrollToBottom = () => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    };
+
+    useEffect(() => {
+        scrollToBottom();
+    }, [messages]);
+
+    const handleSendMessage = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (newMessage.trim()) {
+            sendMessage(newMessage);
+            setNewMessage("");
+        }
+    };
 
     const handleLeaveRoom = () => {
         // In the future: WebSocket disconnect + Cleanup
@@ -63,6 +87,8 @@ export default function RoomPage() {
             </Container>
         );
     }
+
+
 
     // Sidebar Content (Chat or Users)
     const sidebarContent = (
@@ -88,12 +114,30 @@ export default function RoomPage() {
                 </Box>
             </Box>
 
-            <Box flexGrow={1} overflow="auto" p={2}>
+            <Box flexGrow={1} overflow="auto" p={2} display="flex" flexDirection="column">
                 {activeTab === 'chat' ? (
-                    <Box display="flex" flexDirection="column" gap={2} alignItems="center" justifyContent="center" height="100%">
-                        <MessageSquare size={48} color="#ccc" />
-                        <Typography color="text.secondary">Chat connecting...</Typography>
-                    </Box>
+                    <>
+                        {!isConnected && (
+                            <Alert severity="warning" sx={{ mb: 2 }}>Connecting...</Alert>
+                        )}
+                        <Box flexGrow={1} display="flex" flexDirection="column" gap={1}>
+                            {messages.map((msg, idx) => (
+                                <Box key={idx} sx={{ bgcolor: 'action.hover', p: 1, borderRadius: 1 }}>
+                                    <Typography variant="caption" color="text.secondary" fontWeight="bold">
+                                        {msg.username}
+                                    </Typography>
+                                    <Typography variant="body2">{msg.message}</Typography>
+                                </Box>
+                            ))}
+                            <div ref={messagesEndRef} />
+                            {messages.length === 0 && isConnected && (
+                                <Box display="flex" flexDirection="column" alignItems="center" justifyContent="center" height="50%" opacity={0.5}>
+                                    <MessageSquare size={32} />
+                                    <Typography variant="caption">No messages yet</Typography>
+                                </Box>
+                            )}
+                        </Box>
+                    </>
                 ) : (
                     <List>
                         {/* Placeholder for User List */}
@@ -109,10 +153,29 @@ export default function RoomPage() {
                 )}
             </Box>
 
-            {/* Chat Input Placeholder */}
+            {/* Chat Input */}
             {activeTab === 'chat' && (
                 <Box p={2} borderTop={1} borderColor="divider">
-                    <Typography variant="caption" color="text.secondary">Chat functionality disabled</Typography>
+                    <form onSubmit={handleSendMessage}>
+                        <Box display="flex" gap={1}>
+                            <TextField
+                                fullWidth
+                                size="small"
+                                placeholder="Type a message..."
+                                value={newMessage}
+                                onChange={(e) => setNewMessage(e.target.value)}
+                                disabled={!isConnected}
+                            />
+                            <Button
+                                type="submit"
+                                variant="contained"
+                                disabled={!isConnected || !newMessage.trim()}
+                                sx={{ minWidth: 'auto' }}
+                            >
+                                Send
+                            </Button>
+                        </Box>
+                    </form>
                 </Box>
             )}
         </Box>

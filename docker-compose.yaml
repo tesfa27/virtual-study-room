@@ -31,7 +31,7 @@ services:
   # 3. Backend Service (Django)
   backend:
     build: ./backend
-    command: python manage.py runserver 0.0.0.0:8000
+    command: daphne -b 0.0.0.0 -p 8000 config.asgi:application
     volumes:
       - ./backend:/app # Hot-reloading: changes in local folder reflect in container
     ports:
