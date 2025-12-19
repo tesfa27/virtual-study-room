@@ -28,7 +28,24 @@ services:
     networks:
       - main_network
 
-  # 3. Backend Service (Django)
+  # 3. pgAdmin (Database UI)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=${PGADMIN_EMAIL:-admin@admin.com}
+      - PGADMIN_DEFAULT_PASSWORD=${PGADMIN_PASSWORD:-admin}
+      - PGADMIN_CONFIG_SERVER_MODE=False
+      - PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED=False
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      - db
+    networks:
+      - main_network
+
+  # 4. Backend Service (Django)
   backend:
     build: ./backend
     command: daphne -b 0.0.0.0 -p 8000 config.asgi:application
@@ -49,7 +66,7 @@ services:
     networks:
       - main_network
 
-  # 4. Frontend Service (React + Vite)
+  # 5. Frontend Service (React + Vite)
   frontend:
     build: ./frontend
     volumes:
@@ -67,6 +84,7 @@ services:
 
 volumes:
   postgres_data: # Persist DB data even if containers are destroyed
+  pgadmin_data: # Persist pgAdmin settings and server configurations
 
 networks:
   main_network:

@@ -8,3 +8,4 @@ channels-redis>=4.1.0
 gunicorn # WSGI server for production (Good practice to include)
 python-dotenv # For loading settings from the .env file
 djangorestframework-simplejwt
+cryptography

@@ -1,7 +1,7 @@
 from rest_framework import generics, permissions, filters
 from rest_framework.pagination import PageNumberPagination
-from .models import Room, RoomMembership
-from .serializers import RoomSerializer
+from .models import Room, RoomMembership, Message
+from .serializers import RoomSerializer, MessageSerializer
 
 class RoomPagination(PageNumberPagination):
     page_size = 10
@@ -27,3 +27,11 @@ class RoomDetailView(generics.RetrieveUpdateDestroyAPIView):
     def get_queryset(self):
         # Optional: restrict updates to owner, read to everyone/members
         return super().get_queryset()
+
+class RoomMessagesView(generics.ListAPIView):
+    serializer_class = MessageSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_queryset(self):
+        room_id = self.kwargs['room_id']
+        return Message.objects.filter(room_id=room_id).order_by('created_at')

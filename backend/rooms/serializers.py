@@ -1,6 +1,7 @@
 from rest_framework import serializers
-from .models import Room, RoomMembership
+from .models import Room, RoomMembership, Message
 from django.contrib.auth import get_user_model
+from utils.encryption_service import EncryptionService
 
 User = get_user_model()
 
@@ -35,3 +36,21 @@ class RoomMembershipSerializer(serializers.ModelSerializer):
         model = RoomMembership
         fields = ['id', 'room', 'user', 'username', 'joined_at']
         read_only_fields = ['id', 'user', 'joined_at']
+
+class MessageSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source='sender.username', read_only=True)
+    sender_id = serializers.CharField(source='sender.id', read_only=True)
+    
+    class Meta:
+        model = Message
+        fields = ['id', 'username', 'sender_id', 'is_edited', 'created_at']
+        read_only_fields = ['id', 'username', 'sender_id', 'is_edited', 'created_at']
+    
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # Decrypt content for display
+        try:
+            data['message'] = EncryptionService.decrypt(instance.content)
+        except:
+            data['message'] = '[Encrypted]'
+        return data

@@ -29,3 +29,15 @@ class RoomMembership(models.Model):
 
     def __str__(self):
         return f"{self.user.username} in {self.room.name}"
+
+class Message(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    room = models.ForeignKey(Room, on_delete=models.CASCADE, related_name='messages')
+    sender = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='messages')
+    content = models.TextField() # Encrypted content
+    is_edited = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Message by {self.sender} in {self.room}"

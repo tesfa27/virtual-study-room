@@ -29,7 +29,9 @@ import {
     LogOut,
     Menu,
     Calendar,
-    Settings
+    Settings,
+    Edit2,
+    Trash2
 } from "lucide-react";
 
 export default function RoomPage() {
@@ -45,8 +47,10 @@ export default function RoomPage() {
 
     // WebSocket Integration - moved to top level
     // Only connect if we have an ID. The hook handles safe disconnection if ID changes/is empty.
-    const { messages, users, sendMessage, isConnected } = useWebSocket(id || "");
+    const { messages, users, sendMessage, editMessage, deleteMessage, isConnected } = useWebSocket(id || "");
     const [newMessage, setNewMessage] = useState("");
+    const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+    const [editContent, setEditContent] = useState("");
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     const scrollToBottom = () => {
@@ -62,6 +66,30 @@ export default function RoomPage() {
         if (newMessage.trim()) {
             sendMessage(newMessage);
             setNewMessage("");
+        }
+    };
+
+    const handleStartEdit = (messageId: string, currentContent: string) => {
+        setEditingMessageId(messageId);
+        setEditContent(currentContent);
+    };
+
+    const handleSaveEdit = () => {
+        if (editingMessageId && editContent.trim()) {
+            editMessage(editingMessageId, editContent);
+            setEditingMessageId(null);
+            setEditContent("");
+        }
+    };
+
+    const handleCancelEdit = () => {
+        setEditingMessageId(null);
+        setEditContent("");
+    };
+
+    const handleDeleteMessage = (messageId: string) => {
+        if (window.confirm("Are you sure you want to delete this message?")) {
+            deleteMessage(messageId);
         }
     };
 
@@ -121,14 +149,80 @@ export default function RoomPage() {
                             <Alert severity="warning" sx={{ mb: 2 }}>Connecting...</Alert>
                         )}
                         <Box flexGrow={1} display="flex" flexDirection="column" gap={1}>
-                            {messages.map((msg, idx) => (
-                                <Box key={idx} sx={{ bgcolor: 'action.hover', p: 1, borderRadius: 1 }}>
-                                    <Typography variant="caption" color="text.secondary" fontWeight="bold">
-                                        {msg.username}
-                                    </Typography>
-                                    <Typography variant="body2">{msg.message}</Typography>
-                                </Box>
-                            ))}
+                            {messages.map((msg) => {
+                                const isOwnMessage = user?.username === msg.username;
+                                const isEditing = editingMessageId === msg.id;
+
+                                return (
+                                    <Box
+                                        key={msg.id || Math.random()}
+                                        sx={{
+                                            bgcolor: isOwnMessage ? 'primary.dark' : 'action.hover',
+                                            p: 1.5,
+                                            borderRadius: 1,
+                                            position: 'relative'
+                                        }}
+                                    >
+                                        <Box display="flex" justifyContent="space-between" alignItems="start">
+                                            <Box flex={1}>
+                                                <Typography variant="caption" color="text.secondary" fontWeight="bold">
+                                                    {msg.username}
+                                                    {msg.is_edited && (
+                                                        <Typography component="span" variant="caption" sx={{ ml: 1, fontStyle: 'italic', opacity: 0.7 }}>
+                                                            (edited)
+                                                        </Typography>
+                                                    )}
+                                                </Typography>
+
+                                                {isEditing ? (
+                                                    <Box mt={1}>
+                                                        <TextField
+                                                            fullWidth
+                                                            size="small"
+                                                            value={editContent}
+                                                            onChange={(e) => setEditContent(e.target.value)}
+                                                            autoFocus
+                                                            multiline
+                                                            maxRows={4}
+                                                        />
+                                                        <Box display="flex" gap={1} mt={1}>
+                                                            <Button size="small" variant="contained" onClick={handleSaveEdit}>
+                                                                Save
+                                                            </Button>
+                                                            <Button size="small" variant="outlined" onClick={handleCancelEdit}>
+                                                                Cancel
+                                                            </Button>
+                                                        </Box>
+                                                    </Box>
+                                                ) : (
+                                                    <Typography variant="body2" sx={{ mt: 0.5 }}>
+                                                        {msg.message}
+                                                    </Typography>
+                                                )}
+                                            </Box>
+
+                                            {isOwnMessage && !isEditing && (
+                                                <Box display="flex" gap={0.5}>
+                                                    <IconButton
+                                                        size="small"
+                                                        onClick={() => handleStartEdit(msg.id!, msg.message)}
+                                                        sx={{ opacity: 0.7, '&:hover': { opacity: 1 } }}
+                                                    >
+                                                        <Edit2 size={14} />
+                                                    </IconButton>
+                                                    <IconButton
+                                                        size="small"
+                                                        onClick={() => handleDeleteMessage(msg.id!)}
+                                                        sx={{ opacity: 0.7, '&:hover': { opacity: 1, color: 'error.main' } }}
+                                                    >
+                                                        <Trash2 size={14} />
+                                                    </IconButton>
+                                                </Box>
+                                            )}
+                                        </Box>
+                                    </Box>
+                                );
+                            })}
                             <div ref={messagesEndRef} />
                             {messages.length === 0 && isConnected && (
                                 <Box display="flex" flexDirection="column" alignItems="center" justifyContent="center" height="50%" opacity={0.5}>
