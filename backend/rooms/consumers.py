@@ -57,6 +57,10 @@ class RoomConsumer(AsyncWebsocketConsumer):
             await self.handle_edit_message(data.get('message_id'), data.get('content'))
         elif message_type == 'delete_message':
             await self.handle_delete_message(data.get('message_id'))
+        elif message_type == 'typing':
+            await self.handle_typing(data.get('is_typing', False))
+        elif message_type == 'mark_seen':
+            await self.handle_mark_seen(data.get('message_id'))
 
     async def handle_chat_message(self, content):
         # 1. Encrypt
@@ -119,6 +123,50 @@ class RoomConsumer(AsyncWebsocketConsumer):
             }
         )
 
+    async def handle_typing(self, is_typing):
+        """Broadcast typing indicator to room"""
+        await self.channel_layer.group_send(
+            self.room_group_name,
+            {
+                'type': 'user_typing',
+                'user_id': str(self.user.id),
+                'username': self.user.username,
+                'is_typing': is_typing
+            }
+        )
+
+    async def handle_mark_seen(self, message_id):
+        """Mark message as seen and update unread count"""
+        if not message_id:
+            return
+            
+        # Create or update MessageSeen record
+        await self.mark_message_seen(message_id, self.user)
+        
+        # Calculate unread count for this user
+        unread_count = await self.get_unread_count(self.user, self.room_id)
+        
+        # Broadcast to user's private channel
+        await self.channel_layer.group_send(
+            self.user_group_name,
+            {
+                'type': 'unread_count_update',
+                'room_id': str(self.room_id),
+                'unread_count': unread_count
+            }
+        )
+
+        # Broadcast seen status to the room (so sender knows it was read)
+        await self.channel_layer.group_send(
+            self.room_group_name,
+            {
+                'type': 'message_seen_update',
+                'message_id': message_id,
+                'user_id': str(self.user.id),
+                'username': self.user.username
+            }
+        )
+
     # Handlers for Group Messages
     async def chat_message(self, event):
         await self.send(text_data=json.dumps({
@@ -142,7 +190,32 @@ class RoomConsumer(AsyncWebsocketConsumer):
             'type': 'message_delete',
             'id': event['id']
         }))
+
+    async def user_typing(self, event):
+        # Don't send typing indicator to the user who is typing
+        if event['user_id'] != str(self.user.id):
+            await self.send(text_data=json.dumps({
+                'type': 'user_typing',
+                'user_id': event['user_id'],
+                'username': event['username'],
+                'is_typing': event['is_typing']
+            }))
+
+    async def unread_count_update(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'unread_count_update',
+            'room_id': event['room_id'],
+            'unread_count': event['unread_count']
+        }))
         
+    async def message_seen_update(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'message_seen_update',
+            'message_id': event['message_id'],
+            'user_id': event['user_id'],
+            'username': event['username']
+        }))
+
     # Database Helpers
     @database_sync_to_async
     def save_message(self, room_id, user, encrypted_content):
@@ -164,6 +237,35 @@ class RoomConsumer(AsyncWebsocketConsumer):
     @database_sync_to_async
     def delete_message(self, message):
         message.delete()
+
+    @database_sync_to_async
+    def mark_message_seen(self, message_id, user):
+        """Mark message as seen using atomic transaction"""
+        from django.db import transaction
+        from .models import MessageSeen
+        
+        with transaction.atomic():
+            # Get or create MessageSeen record
+            MessageSeen.objects.get_or_create(
+                message_id=message_id,
+                user=user
+            )
+
+    @database_sync_to_async
+    def get_unread_count(self, user, room_id):
+        """Calculate unread messages for user in room"""
+        from .models import MessageSeen
+        
+        # Get all messages in room
+        total_messages = Message.objects.filter(room_id=room_id).exclude(sender=user).count()
+        
+        # Get messages seen by user
+        seen_messages = MessageSeen.objects.filter(
+            user=user,
+            message__room_id=room_id
+        ).count()
+        
+        return total_messages - seen_messages
 
     # Presence helpers
     async def broadcast_presence(self):

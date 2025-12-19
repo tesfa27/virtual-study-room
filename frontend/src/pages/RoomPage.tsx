@@ -20,7 +20,9 @@ import {
     Avatar,
     CircularProgress,
     Alert,
-    TextField
+    TextField,
+    Chip,
+    Tooltip
 } from "@mui/material";
 import {
     MessageSquare,
@@ -31,7 +33,8 @@ import {
     Calendar,
     Settings,
     Edit2,
-    Trash2
+    Trash2,
+    Eye
 } from "lucide-react";
 
 export default function RoomPage() {
@@ -47,11 +50,23 @@ export default function RoomPage() {
 
     // WebSocket Integration - moved to top level
     // Only connect if we have an ID. The hook handles safe disconnection if ID changes/is empty.
-    const { messages, users, sendMessage, editMessage, deleteMessage, isConnected } = useWebSocket(id || "");
+    const {
+        messages,
+        users,
+        typingUsers,
+        unreadCount,
+        sendMessage,
+        editMessage,
+        deleteMessage,
+        sendTyping,
+        markSeen,
+        isConnected
+    } = useWebSocket(id || "");
     const [newMessage, setNewMessage] = useState("");
     const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
     const [editContent, setEditContent] = useState("");
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -59,14 +74,45 @@ export default function RoomPage() {
 
     useEffect(() => {
         scrollToBottom();
-    }, [messages]);
+
+        // Mark latest message as seen
+        if (messages.length > 0) {
+            const latestMessage = messages[messages.length - 1];
+            // Don't mark own messages as seen
+            if (latestMessage.username !== user?.username && latestMessage.id) {
+                markSeen(latestMessage.id);
+            }
+        }
+    }, [messages, markSeen, user?.username]);
 
     const handleSendMessage = (e: React.FormEvent) => {
         e.preventDefault();
         if (newMessage.trim()) {
             sendMessage(newMessage);
             setNewMessage("");
+            // Stop typing indicator when message is sent
+            sendTyping(false);
+            if (typingTimeoutRef.current) {
+                clearTimeout(typingTimeoutRef.current);
+            }
         }
+    };
+
+    const handleMessageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setNewMessage(e.target.value);
+
+        // Send typing indicator
+        sendTyping(true);
+
+        // Clear previous timeout
+        if (typingTimeoutRef.current) {
+            clearTimeout(typingTimeoutRef.current);
+        }
+
+        // Stop typing after 2 seconds of inactivity
+        typingTimeoutRef.current = setTimeout(() => {
+            sendTyping(false);
+        }, 2000);
     };
 
     const handleStartEdit = (messageId: string, currentContent: string) => {
@@ -202,27 +248,50 @@ export default function RoomPage() {
                                             </Box>
 
                                             {isOwnMessage && !isEditing && (
-                                                <Box display="flex" gap={0.5}>
-                                                    <IconButton
-                                                        size="small"
-                                                        onClick={() => handleStartEdit(msg.id!, msg.message)}
-                                                        sx={{ opacity: 0.7, '&:hover': { opacity: 1 } }}
-                                                    >
-                                                        <Edit2 size={14} />
-                                                    </IconButton>
-                                                    <IconButton
-                                                        size="small"
-                                                        onClick={() => handleDeleteMessage(msg.id!)}
-                                                        sx={{ opacity: 0.7, '&:hover': { opacity: 1, color: 'error.main' } }}
-                                                    >
-                                                        <Trash2 size={14} />
-                                                    </IconButton>
+                                                <Box display="flex" flexDirection="column" alignItems="flex-end">
+                                                    <Box display="flex" gap={0.5}>
+                                                        <IconButton
+                                                            size="small"
+                                                            onClick={() => handleStartEdit(msg.id!, msg.message)}
+                                                            sx={{ opacity: 0.7, '&:hover': { opacity: 1 } }}
+                                                        >
+                                                            <Edit2 size={14} />
+                                                        </IconButton>
+                                                        <IconButton
+                                                            size="small"
+                                                            onClick={() => handleDeleteMessage(msg.id!)}
+                                                            sx={{ opacity: 0.7, '&:hover': { opacity: 1, color: 'error.main' } }}
+                                                        >
+                                                            <Trash2 size={14} />
+                                                        </IconButton>
+                                                    </Box>
+                                                    {/* Seen Indicator */}
+                                                    {msg.seen_by && msg.seen_by.length > 0 && (
+                                                        <Tooltip title={`Seen by ${msg.seen_by.length} users`}>
+                                                            <Box display="flex" alignItems="center" mt={0.5} sx={{ opacity: 0.6 }}>
+                                                                <Eye size={14} />
+                                                                <Typography variant="caption" sx={{ ml: 0.5, fontSize: '0.75rem', fontWeight: 'bold' }}>
+                                                                    {msg.seen_by.length}
+                                                                </Typography>
+                                                            </Box>
+                                                        </Tooltip>
+                                                    )}
                                                 </Box>
                                             )}
                                         </Box>
                                     </Box>
                                 );
                             })}
+
+                            {/* Typing Indicator */}
+                            {typingUsers.size > 0 && (
+                                <Box sx={{ p: 1, fontStyle: 'italic', opacity: 0.7 }}>
+                                    <Typography variant="caption" color="text.secondary">
+                                        {Array.from(typingUsers.values()).join(', ')} {typingUsers.size === 1 ? 'is' : 'are'} typing...
+                                    </Typography>
+                                </Box>
+                            )}
+
                             <div ref={messagesEndRef} />
                             {messages.length === 0 && isConnected && (
                                 <Box display="flex" flexDirection="column" alignItems="center" justifyContent="center" height="50%" opacity={0.5}>
@@ -262,7 +331,7 @@ export default function RoomPage() {
                                 size="small"
                                 placeholder="Type a message..."
                                 value={newMessage}
-                                onChange={(e) => setNewMessage(e.target.value)}
+                                onChange={handleMessageChange}
                                 disabled={!isConnected}
                             />
                             <Button
@@ -301,6 +370,14 @@ export default function RoomPage() {
                     {/* Room Controls Header */}
                     <Box display="flex" alignItems="center" gap={2}>
                         <Chip label={room.topic || "General"} size="small" color="secondary" />
+                        {unreadCount > 0 && (
+                            <Chip
+                                label={`${unreadCount} unread`}
+                                size="small"
+                                color="error"
+                                sx={{ fontWeight: 'bold' }}
+                            />
+                        )}
                         <Button
                             color="inherit"
                             startIcon={<LogOut size={18} />}
@@ -399,5 +476,4 @@ export default function RoomPage() {
     );
 }
 
-// Helper component import was missing in previous steps, adding simplified Chip alias here if needed or importing from MUI
-import { Chip } from "@mui/material";
+

@@ -53,4 +53,7 @@ class MessageSerializer(serializers.ModelSerializer):
             data['message'] = EncryptionService.decrypt(instance.content)
         except:
             data['message'] = '[Encrypted]'
+            
+        # Get list of user IDs who have seen this message
+        data['seen_by'] = list(map(str, instance.seen_by.values_list('user_id', flat=True)))
         return data

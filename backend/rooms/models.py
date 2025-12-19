@@ -41,3 +41,17 @@ class Message(models.Model):
 
     def __str__(self):
         return f"Message by {self.sender} in {self.room}"
+
+class MessageSeen(models.Model):
+    message = models.ForeignKey(Message, on_delete=models.CASCADE, related_name='seen_by')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='seen_messages')
+    seen_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('message', 'user')
+        indexes = [
+            models.Index(fields=['user', 'message']),
+        ]
+
+    def __str__(self):
+        return f"{self.user.username} saw message {self.message.id}"
