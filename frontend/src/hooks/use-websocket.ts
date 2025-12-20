@@ -13,6 +13,7 @@ export interface ChatMessage {
 export interface OnlineUser {
     id: string;
     username: string;
+    role?: string; // member, moderator, admin
 }
 
 export const useWebSocket = (roomId: string) => {
@@ -114,6 +115,34 @@ export const useWebSocket = (roomId: string) => {
                         return msg;
                     })
                 );
+            } else if (data.type === 'user_kicked') {
+                // User was kicked from room
+                alert(`You were kicked from the room by ${data.kicked_by}`);
+                window.location.href = '/';
+            } else if (data.type === 'user_removed') {
+                // Someone was removed from room
+                console.log(`${data.user_id} was removed by ${data.removed_by}`);
+            } else if (data.type === 'user_role_updated') {
+                // User role was changed
+                setUsers((prev) =>
+                    prev.map((user) =>
+                        user.id === data.user_id
+                            ? { ...user, role: data.new_role }
+                            : user
+                    )
+                );
+            } else if (data.type === 'room_settings_updated') {
+                // Room settings changed
+                console.log('Room settings updated:', data.settings);
+            } else if (data.type === 'user_muted') {
+                // Current user was muted
+                alert(`You have been muted by ${data.muted_by} for ${data.duration} minutes`);
+            } else if (data.type === 'user_muted_notification') {
+                // Someone was muted
+                console.log(`User ${data.user_id} was muted by ${data.muted_by}`);
+            } else if (data.type === 'error') {
+                // Error message from server
+                alert(`Error: ${data.message}`);
             } else if (data.message) {
                 // Default to chat message if 'message' field exists (backwards compat)
                 setMessages((prev) => [...prev, {
@@ -186,6 +215,45 @@ export const useWebSocket = (roomId: string) => {
         }
     }, []);
 
+    // Group Management Functions
+    const kickUser = useCallback((userId: string) => {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({
+                type: 'kick_user',
+                user_id: userId
+            }));
+        }
+    }, []);
+
+    const promoteUser = useCallback((userId: string, role: string) => {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({
+                type: 'promote_user',
+                user_id: userId,
+                role
+            }));
+        }
+    }, []);
+
+    const updateRoomSettings = useCallback((settings: any) => {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({
+                type: 'update_room_settings',
+                settings
+            }));
+        }
+    }, []);
+
+    const muteUser = useCallback((userId: string, duration: number) => {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({
+                type: 'mute_user',
+                user_id: userId,
+                duration
+            }));
+        }
+    }, []);
+
     return {
         messages,
         users,
@@ -196,6 +264,10 @@ export const useWebSocket = (roomId: string) => {
         deleteMessage,
         sendTyping,
         markSeen,
+        kickUser,
+        promoteUser,
+        updateRoomSettings,
+        muteUser,
         isConnected
     };
 };

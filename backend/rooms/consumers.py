@@ -61,8 +61,23 @@ class RoomConsumer(AsyncWebsocketConsumer):
             await self.handle_typing(data.get('is_typing', False))
         elif message_type == 'mark_seen':
             await self.handle_mark_seen(data.get('message_id'))
+        # Group Management
+        elif message_type == 'kick_user':
+            await self.handle_kick_user(data.get('user_id'))
+        elif message_type == 'promote_user':
+            await self.handle_promote_user(data.get('user_id'), data.get('role'))
+        elif message_type == 'update_room_settings':
+            await self.handle_update_room_settings(data.get('settings'))
+        elif message_type == 'mute_user':
+            await self.handle_mute_user(data.get('user_id'), data.get('duration'))
 
     async def handle_chat_message(self, content):
+        # Check if user is muted
+        is_muted = await self.is_user_muted()
+        if is_muted:
+            await self.send_error('You are currently muted and cannot send messages')
+            return
+        
         # 1. Encrypt
         encrypted_content = EncryptionService.encrypt(content)
         
@@ -167,6 +182,146 @@ class RoomConsumer(AsyncWebsocketConsumer):
             }
         )
 
+    # Group Management Handlers
+    async def handle_kick_user(self, user_id):
+        """Kick a user from the room (requires admin/moderator role)"""
+        if not user_id:
+            return
+        
+        # Check if current user has permission
+        has_permission = await self.check_permission(['admin', 'moderator'])
+        if not has_permission:
+            await self.send_error('You do not have permission to kick users')
+            return
+        
+        # Check if target is room owner
+        is_owner = await self.is_room_owner(user_id)
+        if is_owner:
+            await self.send_error('Cannot kick room owner')
+            return
+        
+        # Remove user from room
+        removed = await self.remove_user_from_room_by_id(user_id)
+        if removed:
+            # Notify the kicked user
+            await self.channel_layer.group_send(
+                f'user_{user_id}',
+                {
+                    'type': 'user_kicked',
+                    'room_id': str(self.room_id),
+                    'kicked_by': self.user.username
+                }
+            )
+            
+            # Notify room
+            await self.channel_layer.group_send(
+                self.room_group_name,
+                {
+                    'type': 'user_removed',
+                    'user_id': user_id,
+                    'removed_by': self.user.username,
+                    'reason': 'kicked'
+                }
+            )
+            
+            await self.broadcast_presence()
+
+    async def handle_promote_user(self, user_id, role):
+        """Promote/demote a user's role (requires admin)"""
+        if not user_id or not role:
+            return
+        
+        # Only admins and room owner can change roles
+        is_admin = await self.check_permission(['admin'])
+        is_owner = await self.is_current_user_owner()
+        
+        if not (is_admin or is_owner):
+            await self.send_error('You do not have permission to change user roles')
+            return
+        
+        # Validate role
+        valid_roles = ['member', 'moderator', 'admin']
+        if role not in valid_roles:
+            await self.send_error(f'Invalid role: {role}')
+            return
+        
+        # Update role
+        success = await self.update_user_role(user_id, role)
+        if success:
+            # Notify room
+            await self.channel_layer.group_send(
+                self.room_group_name,
+                {
+                    'type': 'user_role_updated',
+                    'user_id': user_id,
+                    'new_role': role,
+                    'updated_by': self.user.username
+                }
+            )
+
+    async def handle_update_room_settings(self, settings):
+        """Update room settings (requires admin or owner)"""
+        if not settings:
+            return
+        
+        is_owner = await self.is_current_user_owner()
+        if not is_owner:
+            await self.send_error('Only room owner can update settings')
+            return
+        
+        # Update room settings
+        updated = await self.update_room(settings)
+        if updated:
+            # Broadcast updated settings
+            await self.channel_layer.group_send(
+                self.room_group_name,
+                {
+                    'type': 'room_settings_updated',
+                    'settings': settings,
+                    'updated_by': self.user.username
+                }
+            )
+
+    async def handle_mute_user(self, user_id, duration):
+        """Mute a user for specified duration in minutes (requires moderator/admin)"""
+        if not user_id:
+            return
+        
+        has_permission = await self.check_permission(['admin', 'moderator'])
+        if not has_permission:
+            await self.send_error('You do not have permission to mute users')
+            return
+        
+        # Mute user
+        from datetime import timedelta
+        from django.utils import timezone
+        
+        duration_minutes = int(duration) if duration else 10  # Default 10 minutes
+        muted_until = timezone.now() + timedelta(minutes=duration_minutes)
+        
+        success = await self.mute_user(user_id, muted_until)
+        if success:
+            # Notify user and room
+            await self.channel_layer.group_send(
+                f'user_{user_id}',
+                {
+                    'type': 'user_muted',
+                    'room_id': str(self.room_id),
+                    'muted_by': self.user.username,
+                    'duration': duration_minutes
+                }
+            )
+            
+            await self.channel_layer.group_send(
+                self.room_group_name,
+                {
+                    'type': 'user_muted_notification',
+                    'user_id': user_id,
+                    'muted_by': self.user.username,
+                    'duration': duration_minutes
+                }
+            )
+
     # Handlers for Group Messages
     async def chat_message(self, event):
         await self.send(text_data=json.dumps({
@@ -214,6 +369,61 @@ class RoomConsumer(AsyncWebsocketConsumer):
             'message_id': event['message_id'],
             'user_id': event['user_id'],
             'username': event['username']
+        }))
+
+    # Group Management Broadcast Handlers
+    async def user_kicked(self, event):
+        """Notify user they were kicked"""
+        await self.send(text_data=json.dumps({
+            'type': 'user_kicked',
+            'room_id': event['room_id'],
+            'kicked_by': event['kicked_by']
+        }))
+        # Close connection
+        await self.close()
+
+    async def user_removed(self, event):
+        """Notify room that a user was removed"""
+        await self.send(text_data=json.dumps({
+            'type': 'user_removed',
+            'user_id': event['user_id'],
+            'removed_by': event['removed_by'],
+            'reason': event['reason']
+        }))
+
+    async def user_role_updated(self, event):
+        """Notify room of role change"""
+        await self.send(text_data=json.dumps({
+            'type': 'user_role_updated',
+            'user_id': event['user_id'],
+            'new_role': event['new_role'],
+            'updated_by': event['updated_by']
+        }))
+
+    async def room_settings_updated(self, event):
+        """Notify room of settings update"""
+        await self.send(text_data=json.dumps({
+            'type': 'room_settings_updated',
+            'settings': event['settings'],
+            'updated_by': event['updated_by']
+        }))
+
+    async def user_muted(self, event):
+        """Notify user they were muted"""
+        await self.send(text_data=json.dumps({
+            'type': 'user_muted',
+            'room_id': event['room_id'],
+            'muted_by': event['muted_by'],
+            'duration': event['duration']
+        }))
+
+    async def user_muted_notification(self, event):
+        """Notify room that a user was muted"""
+        await self.send(text_data=json.dumps({
+            'type': 'user_muted_notification',
+            'user_id': event['user_id'],
+            'muted_by': event['muted_by'],
+            'duration': event['duration']
         }))
 
     # Database Helpers
@@ -267,6 +477,111 @@ class RoomConsumer(AsyncWebsocketConsumer):
         
         return total_messages - seen_messages
 
+    # Group Management Database Helpers
+    @database_sync_to_async
+    def check_permission(self, required_roles):
+        """Check if current user has one of the required roles"""
+        from .models import RoomMembership
+        try:
+            membership = RoomMembership.objects.get(room_id=self.room_id, user=self.user)
+            return membership.role in required_roles
+        except RoomMembership.DoesNotExist:
+            return False
+
+    @database_sync_to_async
+    def is_current_user_owner(self):
+        """Check if current user is room owner"""
+        try:
+            room = Room.objects.get(id=self.room_id)
+            return room.owner_id == self.user.id
+        except Room.DoesNotExist:
+            return False
+
+    @database_sync_to_async
+    def is_room_owner(self, user_id):
+        """Check if specified user is room owner"""
+        try:
+            room = Room.objects.get(id=self.room_id)
+            return str(room.owner_id) == str(user_id)
+        except Room.DoesNotExist:
+            return False
+
+    @database_sync_to_async
+    def remove_user_from_room_by_id(self, user_id):
+        """Remove a user from the room by user ID"""
+        from .models import RoomMembership
+        try:
+            membership = RoomMembership.objects.get(room_id=self.room_id, user_id=user_id)
+            membership.delete()
+            return True
+        except RoomMembership.DoesNotExist:
+            return False
+
+    @database_sync_to_async
+    def update_user_role(self, user_id, role):
+        """Update user's role in the room"""
+        from .models import RoomMembership
+        try:
+            membership = RoomMembership.objects.get(room_id=self.room_id, user_id=user_id)
+            membership.role = role
+            membership.save()
+            return True
+        except RoomMembership.DoesNotExist:
+            return False
+
+    @database_sync_to_async
+    def update_room(self, settings):
+        """Update room settings"""
+        try:
+            room = Room.objects.get(id=self.room_id)
+            # Update allowed fields
+            if 'name' in settings:
+                room.name = settings['name']
+            if 'description' in settings:
+                room.description = settings['description']
+            if 'topic' in settings:
+                room.topic = settings['topic']
+            if 'capacity' in settings:
+                room.capacity = settings['capacity']
+            if 'is_private' in settings:
+                room.is_private = settings['is_private']
+            room.save()
+            return True
+        except Room.DoesNotExist:
+            return False
+
+    @database_sync_to_async
+    def mute_user(self, user_id, muted_until):
+        """Mute a user until specified time"""
+        from .models import RoomMembership
+        try:
+            membership = RoomMembership.objects.get(room_id=self.room_id, user_id=user_id)
+            membership.muted_until = muted_until
+            membership.save()
+            return True
+        except RoomMembership.DoesNotExist:
+            return False
+
+    @database_sync_to_async
+    def is_user_muted(self):
+        """Check if current user is muted"""
+        from .models import RoomMembership
+        from django.utils import timezone
+        try:
+            membership = RoomMembership.objects.get(room_id=self.room_id, user=self.user)
+            if membership.muted_until:
+                return membership.muted_until > timezone.now()
+            return False
+        except RoomMembership.DoesNotExist:
+            return False
+
+    async def send_error(self, message):
+        """Send error message to user"""
+        await self.send(text_data=json.dumps({
+            'type': 'error',
+            'message': message
+        }))
+
     # Presence helpers
     async def broadcast_presence(self):
         users = await self.get_room_users(self.room_id)
@@ -286,8 +601,21 @@ class RoomConsumer(AsyncWebsocketConsumer):
 
     @database_sync_to_async
     def add_user_to_room(self, room_id, user):
+        from .models import RoomMembership
+        
+        # Get user's role from membership
+        try:
+            membership = RoomMembership.objects.get(room_id=room_id, user=user)
+            role = membership.role
+        except RoomMembership.DoesNotExist:
+            role = 'member'
+        
         key = f"room:{room_id}:online_users"
-        user_data = {'id': str(user.id), 'username': user.username}
+        user_data = {
+            'id': str(user.id), 
+            'username': user.username,
+            'role': role
+        }
         current_users = cache.get(key, {})
         current_users[str(user.id)] = user_data
         cache.set(key, current_users, timeout=None)

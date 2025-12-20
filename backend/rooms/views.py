@@ -1,4 +1,4 @@
-from rest_framework import generics, permissions, filters
+from rest_framework import generics, permissions, filters, exceptions
 from rest_framework.pagination import PageNumberPagination
 from .models import Room, RoomMembership, Message
 from .serializers import RoomSerializer, MessageSerializer
@@ -17,7 +17,13 @@ class RoomListCreateView(generics.ListCreateAPIView):
     search_fields = ['name', 'topic']
 
     def perform_create(self, serializer):
-        serializer.save(owner=self.request.user)
+        room = serializer.save(owner=self.request.user)
+        # Automatically create admin membership for room owner
+        RoomMembership.objects.create(
+            room=room,
+            user=self.request.user,
+            role='admin'
+        )
 
 class RoomDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Room.objects.all()
@@ -34,4 +40,58 @@ class RoomMessagesView(generics.ListAPIView):
     
     def get_queryset(self):
         room_id = self.kwargs['room_id']
+        user = self.request.user
+        
+        # Check if user is a member of the room
+        if not RoomMembership.objects.filter(room_id=room_id, user=user).exists():
+            raise exceptions.PermissionDenied("You must join this room to view messages.")
+            
         return Message.objects.filter(room_id=room_id).order_by('created_at')
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+
+class JoinRoomView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def post(self, request, room_id):
+        """Join a room by creating a membership"""
+        try:
+            room = Room.objects.get(id=room_id)
+        except Room.DoesNotExist:
+            return Response(
+                {'error': 'Room not found'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Check if room is at capacity
+        current_members = RoomMembership.objects.filter(room=room).count()
+        if current_members >= room.capacity:
+            return Response(
+                {'error': 'Room is at full capacity'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Determine role (admin if owner, else member)
+        role = 'admin' if room.owner == request.user else 'member'
+        
+        # Check if user is already a member
+        membership, created = RoomMembership.objects.get_or_create(
+            room=room,
+            user=request.user,
+            defaults={'role': role}
+        )
+        
+        if created:
+            return Response({
+                'message': 'Successfully joined room',
+                'room_id': str(room.id),
+                'role': membership.role
+            }, status=status.HTTP_201_CREATED)
+        else:
+            return Response({
+                'message': 'Already a member of this room',
+                'room_id': str(room.id),
+                'role': membership.role
+            }, status=status.HTTP_200_OK)

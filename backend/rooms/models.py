@@ -20,8 +20,16 @@ class Room(models.Model):
         return self.name
 
 class RoomMembership(models.Model):
+    ROLE_CHOICES = [
+        ('member', 'Member'),
+        ('moderator', 'Moderator'),
+        ('admin', 'Admin'),
+    ]
+    
     room = models.ForeignKey(Room, on_delete=models.CASCADE, related_name='memberships')
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='room_memberships')
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='member')
+    muted_until = models.DateTimeField(null=True, blank=True)
     joined_at = models.DateTimeField(auto_now_add=True)
     
     class Meta:

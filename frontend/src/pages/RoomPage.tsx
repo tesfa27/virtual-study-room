@@ -22,19 +22,29 @@ import {
     Alert,
     TextField,
     Chip,
-    Tooltip
+    Tooltip,
+    Menu,
+    MenuItem,
+    Dialog,
+    DialogTitle,
+    DialogContent,
+    DialogActions
 } from "@mui/material";
 import {
     MessageSquare,
     Users,
     Clock,
     LogOut,
-    Menu,
+    Menu as MenuIcon,
     Calendar,
     Settings,
     Edit2,
     Trash2,
-    Eye
+    Eye,
+    MoreVertical,
+    UserX,
+    Shield,
+    Volume2
 } from "lucide-react";
 
 export default function RoomPage() {
@@ -60,16 +70,85 @@ export default function RoomPage() {
         deleteMessage,
         sendTyping,
         markSeen,
+        kickUser,
+        promoteUser,
+        updateRoomSettings,
+        muteUser,
         isConnected
     } = useWebSocket(id || "");
     const [newMessage, setNewMessage] = useState("");
     const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
     const [editContent, setEditContent] = useState("");
+    const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+    const [selectedUser, setSelectedUser] = useState<any>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const [showJoinDialog, setShowJoinDialog] = useState(false);
+    const [hasJoined, setHasJoined] = useState(false);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    };
+
+    // Check if user needs to join the room
+    useEffect(() => {
+        const checkMembership = async () => {
+            if (!id || !user || hasJoined) return;
+
+            try {
+                // Check if user is already a member by trying to fetch messages
+                // If they can fetch, they're likely a member
+                const response = await fetch(`http://localhost:8000/api/rooms/${id}/messages/`, {
+                    credentials: 'include',
+                });
+
+                if (response.status === 403) {
+                    // Not a member, show join dialog
+                    setShowJoinDialog(true);
+                } else if (response.ok) {
+                    // Already a member
+                    setHasJoined(true);
+                } else {
+                    // unexpected error (e.g. 500)
+                    console.error("Membership check failed", response.status);
+                    // Safer to assume not joined and ask? Or show error?
+                    // Let's safe-fail to asking join, which might fail again but at least shows intention
+                    setShowJoinDialog(true);
+                }
+            } catch (error) {
+                console.error('Error checking membership:', error);
+                // Network error - probably can't join anyway
+            }
+        };
+
+        checkMembership();
+    }, [id, user, hasJoined]);
+
+    const handleJoinRoom = async () => {
+        if (!id) return;
+
+        try {
+            const response = await fetch(`http://localhost:8000/api/rooms/${id}/join/`, {
+                method: 'POST',
+                credentials: 'include',
+            });
+
+            if (response.ok) {
+                setHasJoined(true);
+                setShowJoinDialog(false);
+                window.location.reload(); // Reload to fetch messages and establish clean connection
+            } else {
+                const data = await response.json();
+                alert(data.error || 'Failed to join room');
+            }
+        } catch (error) {
+            console.error('Error joining room:', error);
+            alert('Failed to join room');
+        }
+    };
+
+    const handleDeclineJoin = () => {
+        navigate('/');
     };
 
     useEffect(() => {
@@ -142,6 +221,41 @@ export default function RoomPage() {
     const handleLeaveRoom = () => {
         // In the future: WebSocket disconnect + Cleanup
         navigate('/');
+    };
+
+    // Group Management Handlers
+    const handleUserMenuOpen = (event: React.MouseEvent<HTMLElement>, userObj: any) => {
+        setAnchorEl(event.currentTarget);
+        setSelectedUser(userObj);
+    };
+
+    const handleUserMenuClose = () => {
+        setAnchorEl(null);
+        setSelectedUser(null);
+    };
+
+    const handleKickUser = () => {
+        if (selectedUser && window.confirm(`Kick ${selectedUser.username}?`)) {
+            kickUser(selectedUser.id);
+        }
+        handleUserMenuClose();
+    };
+
+    const handlePromoteUser = (role: string) => {
+        if (selectedUser) {
+            promoteUser(selectedUser.id, role);
+        }
+        handleUserMenuClose();
+    };
+
+    const handleMuteUser = () => {
+        if (selectedUser) {
+            const duration = prompt('Mute duration in minutes:', '10');
+            if (duration) {
+                muteUser(selectedUser.id, parseInt(duration));
+            }
+        }
+        handleUserMenuClose();
     };
 
     if (isLoading) {
@@ -302,22 +416,77 @@ export default function RoomPage() {
                         </Box>
                     </>
                 ) : (
-                    <List>
-                        {users.map((u) => (
-                            <ListItem key={u.id}>
-                                <Avatar sx={{ mr: 2 }}>{u.username?.charAt(0).toUpperCase()}</Avatar>
-                                <ListItemText
-                                    primary={u.username}
-                                    secondary={user?.username === u.username ? "You" : "Online"}
-                                />
-                            </ListItem>
-                        ))}
-                        {users.length === 0 && (
-                            <Typography variant="caption" sx={{ p: 2, display: 'block' }} color="text.secondary">
-                                No users online (Connecting...)
-                            </Typography>
-                        )}
-                    </List>
+                    <>
+                        <List>
+                            {users.map((u) => (
+                                <ListItem
+                                    key={u.id}
+                                    secondaryAction={
+                                        user?.username !== u.username && (
+                                            <IconButton
+                                                edge="end"
+                                                onClick={(e) => handleUserMenuOpen(e, u)}
+                                            >
+                                                <MoreVertical size={18} />
+                                            </IconButton>
+                                        )
+                                    }
+                                >
+                                    <Avatar sx={{ mr: 2 }}>{u.username?.charAt(0).toUpperCase()}</Avatar>
+                                    <ListItemText
+                                        primary={
+                                            <Box display="flex" alignItems="center" gap={1}>
+                                                {u.username}
+                                                {u.role && u.role !== 'member' && (
+                                                    <Chip
+                                                        label={u.role}
+                                                        size="small"
+                                                        color={u.role === 'admin' ? 'error' : 'warning'}
+                                                        sx={{ height: 20, fontSize: '0.7rem' }}
+                                                    />
+                                                )}
+                                            </Box>
+                                        }
+                                        secondary={user?.username === u.username ? "You" : "Online"}
+                                    />
+                                </ListItem>
+                            ))}
+                            {users.length === 0 && (
+                                <Typography variant="caption" sx={{ p: 2, display: 'block' }} color="text.secondary">
+                                    No users online (Connecting...)
+                                </Typography>
+                            )}
+                        </List>
+
+                        {/* User Management Menu */}
+                        <Menu
+                            anchorEl={anchorEl}
+                            open={Boolean(anchorEl)}
+                            onClose={handleUserMenuClose}
+                        >
+                            <MenuItem onClick={() => handlePromoteUser('member')}>
+                                <Users size={16} style={{ marginRight: 8 }} />
+                                Make Member
+                            </MenuItem>
+                            <MenuItem onClick={() => handlePromoteUser('moderator')}>
+                                <Shield size={16} style={{ marginRight: 8 }} />
+                                Make Moderator
+                            </MenuItem>
+                            <MenuItem onClick={() => handlePromoteUser('admin')}>
+                                <Shield size={16} style={{ marginRight: 8, color: '#f44336' }} />
+                                Make Admin
+                            </MenuItem>
+                            <Divider />
+                            <MenuItem onClick={handleMuteUser}>
+                                <Volume2 size={16} style={{ marginRight: 8 }} />
+                                Mute User
+                            </MenuItem>
+                            <MenuItem onClick={handleKickUser} sx={{ color: 'error.main' }}>
+                                <UserX size={16} style={{ marginRight: 8 }} />
+                                Kick User
+                            </MenuItem>
+                        </Menu>
+                    </>
                 )}
             </Box>
 
@@ -332,7 +501,7 @@ export default function RoomPage() {
                                 placeholder="Type a message..."
                                 value={newMessage}
                                 onChange={handleMessageChange}
-                                disabled={!isConnected}
+                                disabled={!isConnected || !hasJoined}
                             />
                             <Button
                                 type="submit"
@@ -390,88 +559,112 @@ export default function RoomPage() {
             </AppBar>
 
             {/* Main Stage (Timer & Content) */}
-            <Box component="main" sx={{ flexGrow: 1, p: 3, mt: 8, height: '100%', overflow: 'auto', bgcolor: 'background.default' }}>
-                <Container maxWidth="md">
-                    <Box display="flex" flexDirection="column" gap={4} alignItems="center" mt={4}>
+            {hasJoined && (
+                <Box component="main" sx={{ flexGrow: 1, p: 3, mt: 8, height: '100%', overflow: 'auto', bgcolor: 'background.default' }}>
+                    <Container maxWidth="md">
+                        <Box display="flex" flexDirection="column" gap={4} alignItems="center" mt={4}>
 
-                        {/* Timer Placeholder */}
-                        <Paper
-                            elevation={3}
-                            sx={{
-                                width: '100%',
-                                p: 6,
-                                display: 'flex',
-                                flexDirection: 'column',
-                                alignItems: 'center',
-                                borderRadius: 4,
-                                background: 'linear-gradient(145deg, #1e1e1e, #2d2d2d)'
-                            }}
-                        >
-                            <Clock size={64} className="mb-4 text-blue-400" />
-                            <Typography variant="h2" fontWeight="bold" sx={{ fontFamily: 'monospace', my: 2 }}>
-                                25:00
-                            </Typography>
-                            <Typography variant="subtitle1" color="text.secondary" gutterBottom>
-                                Focus Session (Waiting to start...)
-                            </Typography>
-                            <Box display="flex" gap={2} mt={2}>
-                                <Button variant="contained" color="success" size="large">Start</Button>
-                                <Button variant="outlined" color="error" size="large">Reset</Button>
-                            </Box>
-                        </Paper>
-
-                        {/* Room Info */}
-                        <Paper sx={{ width: '100%', p: 3 }}>
-                            <Typography variant="h6" gutterBottom>Room Description</Typography>
-                            <Typography variant="body1" color="text.secondary">
-                                {room.description || "No description provided."}
-                            </Typography>
-
-                            <Box mt={2}>
-                                <Typography variant="caption" display="block">
-                                    Owner: {room.owner_username}
+                            {/* Timer Placeholder */}
+                            <Paper
+                                elevation={3}
+                                sx={{
+                                    width: '100%',
+                                    p: 6,
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    alignItems: 'center',
+                                    borderRadius: 4,
+                                    background: 'linear-gradient(145deg, #1e1e1e, #2d2d2d)'
+                                }}
+                            >
+                                <Clock size={64} className="mb-4 text-blue-400" />
+                                <Typography variant="h2" fontWeight="bold" sx={{ fontFamily: 'monospace', my: 2 }}>
+                                    25:00
                                 </Typography>
-                                <Typography variant="caption" display="block">
-                                    Capacity: {room.capacity}
+                                <Typography variant="subtitle1" color="text.secondary" gutterBottom>
+                                    Focus Session (Waiting to start...)
                                 </Typography>
-                            </Box>
-                        </Paper>
-                    </Box>
-                </Container>
-            </Box>
+                                <Box display="flex" gap={2} mt={2}>
+                                    <Button variant="contained" color="success" size="large">Start</Button>
+                                    <Button variant="outlined" color="error" size="large">Reset</Button>
+                                </Box>
+                            </Paper>
+
+                            {/* Room Info */}
+                            <Paper sx={{ width: '100%', p: 3 }}>
+                                <Typography variant="h6" gutterBottom>Room Description</Typography>
+                                <Typography variant="body1" color="text.secondary">
+                                    {room.description || "No description provided."}
+                                </Typography>
+
+                                <Box mt={2}>
+                                    <Typography variant="caption" display="block">
+                                        Owner: {room.owner_username}
+                                    </Typography>
+                                    <Typography variant="caption" display="block">
+                                        Capacity: {room.capacity}
+                                    </Typography>
+                                </Box>
+                            </Paper>
+                        </Box>
+                    </Container>
+                </Box>
+            )}
 
             {/* Sidebar (Desktop: Persistent, Mobile: Temporary) */}
-            <Drawer
-                variant="persistent"
-                anchor="right"
-                open={isSidebarOpen}
-                sx={{
-                    width: 320,
-                    flexShrink: 0,
-                    '& .MuiDrawer-paper': {
-                        width: 320,
-                        boxSizing: 'border-box',
-                        mt: 8, // Offset for AppBar
-                        height: 'calc(100% - 64px)'
-                    },
-                    display: { xs: 'none', sm: 'block' }
-                }}
-            >
-                {sidebarContent}
-            </Drawer>
-            {/* Mobile Sidebar */}
-            <Drawer
-                variant="temporary"
-                anchor="right"
-                open={isSidebarOpen}
-                onClose={() => setIsSidebarOpen(false)}
-                sx={{
-                    display: { xs: 'block', sm: 'none' },
-                    '& .MuiDrawer-paper': { boxSizing: 'border-box', width: 320 },
-                }}
-            >
-                {sidebarContent}
-            </Drawer>
+            {hasJoined && (
+                <>
+                    <Drawer
+                        variant="persistent"
+                        anchor="right"
+                        open={isSidebarOpen}
+                        sx={{
+                            width: 320,
+                            flexShrink: 0,
+                            '& .MuiDrawer-paper': {
+                                width: 320,
+                                boxSizing: 'border-box',
+                                mt: 8, // Offset for AppBar
+                                height: 'calc(100% - 64px)'
+                            },
+                            display: { xs: 'none', sm: 'block' }
+                        }}
+                    >
+                        {sidebarContent}
+                    </Drawer>
+                    {/* Mobile Sidebar */}
+                    <Drawer
+                        variant="temporary"
+                        anchor="right"
+                        open={isSidebarOpen}
+                        onClose={() => setIsSidebarOpen(false)}
+                        sx={{
+                            display: { xs: 'block', sm: 'none' },
+                            '& .MuiDrawer-paper': { boxSizing: 'border-box', width: 320 },
+                        }}
+                    >
+                        {sidebarContent}
+                    </Drawer>
+                </>
+            )}
+
+            {/* Join Room Confirmation Dialog */}
+            <Dialog open={showJoinDialog} onClose={handleDeclineJoin}>
+                <DialogTitle>Join Room?</DialogTitle>
+                <DialogContent>
+                    <Typography>
+                        Would you like to join "{room?.name}"? You'll be able to chat with other members and participate in study sessions.
+                    </Typography>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={handleDeclineJoin} color="inherit">
+                        Cancel
+                    </Button>
+                    <Button onClick={handleJoinRoom} variant="contained" color="primary">
+                        Join Room
+                    </Button>
+                </DialogActions>
+            </Dialog>
         </Box>
     );
 }
