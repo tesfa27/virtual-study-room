@@ -34,7 +34,8 @@ export default function RoomPage() {
         hasJoined,
         showJoinDialog,
         handleJoin,
-        handleDeclineJoin
+        handleDeclineJoin,
+        handleLeave
     } = useRoomMembership(id, user);
 
     // 3. WebSocket Connection
@@ -94,7 +95,7 @@ export default function RoomPage() {
             <RoomHeader
                 room={room}
                 unreadCount={ws.unreadCount}
-                onLeave={() => navigate('/')}
+                onLeave={handleLeave}
                 onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
             />
 

@@ -95,3 +95,15 @@ export async function joinRoom(id: string): Promise<{ message: string; role: str
 export async function getRoomMessages(id: string): Promise<ChatMessage[]> {
     return apiClient<ChatMessage[]>(`/rooms/${id}/messages/`);
 }
+
+/**
+ * Leave a room
+ */
+export async function leaveRoom(id: string): Promise<{ message: string }> {
+    return apiClient<{ message: string }>(
+        `/rooms/${id}/leave/`,
+        {
+            method: "POST",
+        }
+    );
+}

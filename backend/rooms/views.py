@@ -1,4 +1,7 @@
-from rest_framework import generics, permissions, filters, exceptions
+from rest_framework import generics, permissions, filters, exceptions, status
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from django.shortcuts import get_object_or_404
 from rest_framework.pagination import PageNumberPagination
 from .models import Room, RoomMembership, Message
 from .serializers import RoomSerializer, MessageSerializer
@@ -124,3 +127,46 @@ class JoinRoomView(APIView):
                 'room_id': str(room.id),
                 'role': membership.role
             }, status=status.HTTP_200_OK)
+
+class LeaveRoomView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, room_id):
+        room = get_object_or_404(Room, id=room_id)
+        
+        try:
+            membership = RoomMembership.objects.get(room=room, user=request.user)
+        except RoomMembership.DoesNotExist:
+             return Response({'error': 'Not a member'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if room.owner == request.user:
+            return Response({'error': 'Owner cannot leave room. Delete room instead.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            content = f"{request.user.username} left the room"
+            encrypted_content = EncryptionService.encrypt(content)
+            sys_msg = Message.objects.create(
+                room=room,
+                sender=None,
+                content=encrypted_content,
+                message_type='leave'
+            )
+            
+            channel_layer = get_channel_layer()
+            async_to_sync(channel_layer.group_send)(
+                f'room_{room.id}',
+                {
+                    'type': 'chat_message',
+                    'content': content,
+                    'username': 'System',
+                    'id': str(sys_msg.id),
+                    'sender_id': None,
+                    'message_type': 'leave'
+                }
+            )
+        except Exception as e:
+            print(f"Failed to send leave message: {e}")
+
+        membership.delete()
+
+        return Response({'message': 'Left room successfully'})

@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getRoomMessages, joinRoom } from '../api/rooms';
+import { getRoomMessages, joinRoom, leaveRoom } from '../api/rooms';
 
 export function useRoomMembership(roomId: string | undefined, user: any) {
     const queryClient = useQueryClient();
@@ -29,14 +29,29 @@ export function useRoomMembership(roomId: string | undefined, user: any) {
             return joinRoom(roomId);
         },
         onSuccess: () => {
-            // Invalidate to re-check (though we reload page anyway)
+            // Invalidate via key
             queryClient.invalidateQueries({ queryKey: ['room', roomId, 'membership'] });
-            // Reload to ensure WebSocket connects with clean permissions
             window.location.reload();
         },
         onError: (error) => {
             console.error('Failed to join room:', error);
             alert('Failed to join room. Please try again.');
+        }
+    });
+
+    // 3. Leave Mutation
+    const leaveMutation = useMutation({
+        mutationFn: () => {
+            if (!roomId) throw new Error("No room ID");
+            return leaveRoom(roomId);
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['room', roomId, 'membership'] });
+            window.location.href = '/';
+        },
+        onError: (error) => {
+            console.error("Failed to leave room:", error);
+            alert("Failed to leave room");
         }
     });
 
@@ -46,7 +61,9 @@ export function useRoomMembership(roomId: string | undefined, user: any) {
         isLoading: membershipQuery.isLoading,
         checkMembership: membershipQuery.refetch,
         handleJoin: joinMutation.mutateAsync,
+        handleLeave: leaveMutation.mutateAsync,
         handleDeclineJoin: () => window.location.href = '/',
-        isJoining: joinMutation.isPending
+        isJoining: joinMutation.isPending,
+        isLeaving: leaveMutation.isPending
     };
 }
