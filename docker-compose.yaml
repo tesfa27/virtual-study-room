@@ -1,4 +1,4 @@
-version: '3.8'
+
 
 services:
   # 1. Database Service (PostgreSQL)
@@ -10,8 +10,15 @@ services:
       - POSTGRES_DB=${DB_NAME}
       - POSTGRES_USER=${DB_USER}
       - POSTGRES_PASSWORD=${DB_PASSWORD}
+    ports:
+      - "5432:5432" # Exposed for local development
     networks:
       - main_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   # 2. Redis Service (Cache & WebSockets Layer)
   redis:
@@ -21,23 +28,45 @@ services:
     networks:
       - main_network
 
-  # 3. Backend Service (Django)
+  # 3. pgAdmin (Database UI)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=${PGADMIN_EMAIL:-admin@admin.com}
+      - PGADMIN_DEFAULT_PASSWORD=${PGADMIN_PASSWORD:-admin}
+      - PGADMIN_CONFIG_SERVER_MODE=False
+      - PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED=False
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      - db
+    networks:
+      - main_network
+
+  # 4. Backend Service (Django)
   backend:
     build: ./backend
-    command: python manage.py runserver 0.0.0.0:8000
+    command: daphne -b 0.0.0.0 -p 8000 config.asgi:application
     volumes:
       - ./backend:/app # Hot-reloading: changes in local folder reflect in container
     ports:
       - "8000:8000"
     env_file:
       - .env
+    environment:
+      - DB_HOST=db
+      - REDIS_HOST=redis
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
     networks:
       - main_network
 
-  # 4. Frontend Service (React + Vite)
+  # 5. Frontend Service (React + Vite)
   frontend:
     build: ./frontend
     volumes:
@@ -55,6 +84,7 @@ services:
 
 volumes:
   postgres_data: # Persist DB data even if containers are destroyed
+  pgadmin_data: # Persist pgAdmin settings and server configurations
 
 networks:
   main_network:
