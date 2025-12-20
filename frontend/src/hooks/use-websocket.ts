@@ -1,14 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-
-export interface ChatMessage {
-    id?: string;
-    message: string;
-    username: string;
-    is_edited?: boolean;
-    seen_by?: string[]; // List of user IDs who have seen the message
-}
-
-
+import { getRoomMessages, type ChatMessage } from '../api/rooms';
 
 export interface OnlineUser {
     id: string;
@@ -45,19 +36,8 @@ export const useWebSocket = (roomId: string) => {
         // Fetch message history from REST API
         const fetchMessageHistory = async () => {
             try {
-                const response = await fetch(`http://localhost:8000/api/rooms/${roomId}/messages/`, {
-                    credentials: 'include', // Send cookies
-                });
-                if (response.ok) {
-                    const messages = await response.json();
-                    setMessages(messages.map((msg: any) => ({
-                        id: msg.id,
-                        message: msg.message,
-                        username: msg.username,
-                        is_edited: msg.is_edited,
-                        seen_by: msg.seen_by || []
-                    })));
-                }
+                const history = await getRoomMessages(roomId);
+                setMessages(history);
             } catch (error) {
                 console.error('Failed to load message history:', error);
             }

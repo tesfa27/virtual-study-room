@@ -1,6 +1,6 @@
 import { API_URL } from "./config";
 
-class ApiError extends Error {
+export class ApiError extends Error {
     public status: number;
     public data?: any;
 

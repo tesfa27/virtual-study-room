@@ -63,3 +63,34 @@ export async function createRoom(data: CreateRoomRequest): Promise<Room> {
         }
     );
 }
+
+/**
+ * Chat Message Type
+ */
+export interface ChatMessage {
+    id: string;
+    message: string;
+    username: string;
+    is_edited?: boolean;
+    seen_by?: string[];
+    created_at?: string;
+}
+
+/**
+ * Join a room
+ */
+export async function joinRoom(id: string): Promise<{ message: string; role: string }> {
+    return apiClient<{ message: string; role: string }>(
+        `/rooms/${id}/join/`,
+        {
+            method: "POST",
+        }
+    );
+}
+
+/**
+ * Get room messages
+ */
+export async function getRoomMessages(id: string): Promise<ChatMessage[]> {
+    return apiClient<ChatMessage[]>(`/rooms/${id}/messages/`);
+}
