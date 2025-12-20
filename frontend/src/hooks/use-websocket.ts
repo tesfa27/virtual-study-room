@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { getRoomMessages, type ChatMessage } from '../api/rooms';
+import { WS_URL } from '../api/config';
+import { getCookie } from '../api/client';
 
 export interface OnlineUser {
     id: string;
@@ -15,20 +17,11 @@ export const useWebSocket = (roomId: string) => {
     const [isConnected, setIsConnected] = useState(false);
     const wsRef = useRef<WebSocket | null>(null);
 
-    // Get access token from cookie for handshake
-    const getAccessToken = () => {
-        const value = `; ${document.cookie}`;
-        const parts = value.split(`; access_token=`);
-        if (parts.length === 2) return parts.pop()?.split(';').shift();
-        return null;
-    };
-
     useEffect(() => {
         if (!roomId) return;
 
-        const token = getAccessToken();
-        // In dev, assuming localhost:8000. In prod, this should be env var.
-        const wsUrl = `ws://localhost:8000/ws/room/${roomId}/?token=${token}`;
+        const token = getCookie('access_token');
+        const wsUrl = `${WS_URL}/ws/room/${roomId}/?token=${token}`;
 
         const ws = new WebSocket(wsUrl);
         wsRef.current = ws;
