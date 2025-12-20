@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import {
     Box,
     Typography,
@@ -14,7 +14,9 @@ import {
     Tooltip,
     Menu,
     MenuItem,
-    Alert
+    Alert,
+    Badge,
+    ListItemAvatar
 } from "@mui/material";
 import {
     MessageSquare,
@@ -27,7 +29,7 @@ import {
     Trash2,
     Eye
 } from "lucide-react";
-import type { ChatMessage } from "../../api/rooms"; // Ensure correct import path
+import type { ChatMessage, RoomMember } from "../../api/rooms";
 import type { OnlineUser } from "../../hooks/use-websocket";
 
 interface ChatSidebarProps {
@@ -35,6 +37,7 @@ interface ChatSidebarProps {
     setActiveTab: (tab: 'chat' | 'users') => void;
     messages: ChatMessage[];
     users: OnlineUser[];
+    allMembers: RoomMember[];
     typingUsers: Map<string, string>;
     isConnected: boolean;
     user: any; // Current User
@@ -85,6 +88,7 @@ export default function ChatSidebar({
     setActiveTab,
     messages,
     users,
+    allMembers,
     typingUsers,
     isConnected,
     user,
@@ -97,6 +101,49 @@ export default function ChatSidebar({
     onPromoteUser,
     onMuteUser
 }: ChatSidebarProps) {
+    const displayUsers = useMemo(() => {
+        if (!allMembers) return users.map(u => ({ ...u, isOnline: true }));
+
+        const map = new Map<string, any>();
+
+        // Populate from allMembers
+        // Populate from allMembers
+        allMembers.forEach(m => {
+            const userId = String(m.user);
+            map.set(userId, {
+                id: userId,
+                username: m.username,
+                role: m.role,
+                isOnline: false
+            });
+        });
+
+        // Update online status
+        // Update online status
+        users.forEach(u => {
+            const userId = String(u.id);
+            if (map.has(userId)) {
+                const existing = map.get(userId);
+                existing.isOnline = true;
+            } else {
+                // Online but not in member list (e.g. guests?)
+                map.set(userId, {
+                    id: userId,
+                    username: u.username,
+                    role: u.role || 'member',
+                    isOnline: true
+                });
+            }
+        });
+
+        return Array.from(map.values())
+            .sort((a, b) => {
+                // Sort checks: Online first, then Alpha
+                if (a.isOnline === b.isOnline) return a.username.localeCompare(b.username);
+                return a.isOnline ? -1 : 1;
+            });
+    }, [allMembers, users]);
+
     // ... (keep default function body start) ...
     const [newMessage, setNewMessage] = useState("");
     const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
@@ -361,7 +408,7 @@ export default function ChatSidebar({
                 ) : (
                     <>
                         <List>
-                            {users.map((u) => (
+                            {displayUsers.map((u) => (
                                 <ListItem
                                     key={u.id}
                                     secondaryAction={
@@ -372,7 +419,17 @@ export default function ChatSidebar({
                                         )
                                     }
                                 >
-                                    <Avatar sx={{ mr: 2 }}>{u.username?.charAt(0).toUpperCase()}</Avatar>
+                                    <ListItemAvatar>
+                                        <Badge
+                                            overlap="circular"
+                                            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                                            variant="dot"
+                                            color="success"
+                                            invisible={!u.isOnline}
+                                        >
+                                            <Avatar>{u.username?.charAt(0).toUpperCase()}</Avatar>
+                                        </Badge>
+                                    </ListItemAvatar>
                                     <ListItemText
                                         primary={
                                             <Box display="flex" alignItems="center" gap={1}>
@@ -382,7 +439,11 @@ export default function ChatSidebar({
                                                 )}
                                             </Box>
                                         }
-                                        secondary={user?.username === u.username ? "You" : "Online"}
+                                        secondary={
+                                            <Typography variant="caption" color={u.isOnline ? "success.main" : "text.secondary"}>
+                                                {user?.username === u.username ? "You" : (u.isOnline ? "Online" : "Offline")}
+                                            </Typography>
+                                        }
                                     />
                                 </ListItem>
                             ))}

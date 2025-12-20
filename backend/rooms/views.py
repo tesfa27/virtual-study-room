@@ -4,7 +4,7 @@ from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
 from rest_framework.pagination import PageNumberPagination
 from .models import Room, RoomMembership, Message
-from .serializers import RoomSerializer, MessageSerializer
+from .serializers import RoomSerializer, MessageSerializer, RoomMembershipSerializer
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from utils.encryption_service import EncryptionService
@@ -172,3 +172,11 @@ class LeaveRoomView(APIView):
         membership.delete()
 
         return Response({'message': 'Left room successfully'})
+
+class RoomMembersView(generics.ListAPIView):
+    serializer_class = RoomMembershipSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        room_id = self.kwargs['room_id']
+        return RoomMembership.objects.filter(room_id=room_id).select_related('user')

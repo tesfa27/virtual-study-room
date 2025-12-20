@@ -34,7 +34,7 @@ class RoomMembershipSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = RoomMembership
-        fields = ['id', 'room', 'user', 'username', 'joined_at']
+        fields = ['id', 'room', 'user', 'username', 'role', 'joined_at']
         read_only_fields = ['id', 'user', 'joined_at']
 
 class MessageSerializer(serializers.ModelSerializer):

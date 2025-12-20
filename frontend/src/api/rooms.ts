@@ -107,3 +107,19 @@ export async function leaveRoom(id: string): Promise<{ message: string }> {
         }
     );
 }
+
+export interface RoomMember {
+    id: string; // Membership ID
+    room: string;
+    user: string; // User ID
+    username: string;
+    role: string;
+    joined_at: string;
+}
+
+/**
+ * Get room members
+ */
+export async function getRoomMembers(id: string): Promise<RoomMember[]> {
+    return apiClient<RoomMember[]>(`/rooms/${id}/members/`);
+}

@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { getRoomMembers } from "../api/rooms";
 import {
     Box,
     Drawer,
@@ -46,6 +48,12 @@ export default function RoomPage() {
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [activeTab, setActiveTab] = useState<'chat' | 'users'>('chat');
 
+    const { data: members = [] } = useQuery({
+        queryKey: ['room', id, 'members'],
+        queryFn: () => getRoomMembers(id),
+        enabled: !!id
+    });
+
     // Loading State
     if (isRoomLoading) {
         return (
@@ -73,6 +81,7 @@ export default function RoomPage() {
             setActiveTab={setActiveTab}
             messages={ws.messages}
             users={ws.users}
+            allMembers={members}
             typingUsers={ws.typingUsers}
             isConnected={ws.isConnected}
             user={user}
