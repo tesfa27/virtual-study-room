@@ -110,7 +110,8 @@ class JoinRoomView(APIView):
                         'username': 'System',
                         'id': str(sys_msg.id),
                         'sender_id': None,
-                        'message_type': 'join'
+                        'message_type': 'join',
+                        'created_at': sys_msg.created_at.isoformat()
                     }
                 )
             except Exception as e:
@@ -161,7 +162,8 @@ class LeaveRoomView(APIView):
                     'username': 'System',
                     'id': str(sys_msg.id),
                     'sender_id': None,
-                    'message_type': 'leave'
+                    'message_type': 'leave',
+                    'created_at': sys_msg.created_at.isoformat()
                 }
             )
         except Exception as e:

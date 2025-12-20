@@ -50,7 +50,37 @@ interface ChatSidebarProps {
     onMuteUser: (id: string, duration: number) => void;
 }
 
+// Helper functions
+const formatMessageTime = (isoString?: string) => {
+    if (!isoString) return "";
+    return new Date(isoString).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+};
+
+const getMessageDateHeader = (isoString?: string) => {
+    if (!isoString) return null;
+    const date = new Date(isoString);
+    const now = new Date();
+
+    const isCurrentYear = date.getFullYear() === now.getFullYear();
+    const options: Intl.DateTimeFormatOptions = {
+        month: 'long',
+        day: 'numeric',
+        year: isCurrentYear ? undefined : 'numeric'
+    };
+
+    return date.toLocaleDateString(undefined, options);
+};
+
+const isNewDay = (currentIso?: string, prevIso?: string) => {
+    if (!currentIso) return false;
+    if (!prevIso) return true;
+    const d1 = new Date(currentIso);
+    const d2 = new Date(prevIso);
+    return d1.toDateString() !== d2.toDateString();
+};
+
 export default function ChatSidebar({
+    // ... existing props ...
     activeTab,
     setActiveTab,
     messages,
@@ -67,6 +97,7 @@ export default function ChatSidebar({
     onPromoteUser,
     onMuteUser
 }: ChatSidebarProps) {
+    // ... (keep default function body start) ...
     const [newMessage, setNewMessage] = useState("");
     const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
     const [editContent, setEditContent] = useState("");
@@ -82,11 +113,6 @@ export default function ChatSidebar({
 
     useEffect(() => {
         scrollToBottom();
-        // Mark latest message as seen logic moved here or kept in parent?
-        // Parent does it. But we can trigger here if we want completely isolated.
-        // For simple refactor, let's assume parent handles side-effects like markSeen or we replicate.
-        // Actually, current RoomPage does markSeen in useEffect.
-        // Let's replicate logic here for cleaner isolation.
         if (messages.length > 0) {
             const latestMessage = messages[messages.length - 1];
             if (latestMessage.username !== user?.username && latestMessage.id) {
@@ -195,13 +221,33 @@ export default function ChatSidebar({
                             <Alert severity="warning" sx={{ mb: 2 }}>Connecting...</Alert>
                         )}
                         <Box flexGrow={1} display="flex" flexDirection="column" gap={1}>
-                            {messages.map((msg) => {
+                            {messages.map((msg, index) => {
+                                const prevMsg = index > 0 ? messages[index - 1] : undefined;
+                                const showDateHeader = isNewDay(msg.created_at, prevMsg?.created_at);
+
                                 if (msg.message_type === 'join' || msg.message_type === 'leave' || msg.message_type === 'system') {
                                     return (
-                                        <Box key={msg.id || Math.random()} display="flex" justifyContent="center" my={1} sx={{ opacity: 0.7 }}>
-                                            <Typography variant="caption" sx={{ fontStyle: 'italic', color: 'text.secondary' }}>
-                                                {msg.message}
-                                            </Typography>
+                                        <Box key={msg.id || Math.random()}>
+                                            {showDateHeader && (
+                                                <Box display="flex" justifyContent="center" my={2}>
+                                                    <Chip
+                                                        label={getMessageDateHeader(msg.created_at)}
+                                                        size="small"
+                                                        sx={{
+                                                            opacity: 0.8,
+                                                            bgcolor: 'action.selected',
+                                                            fontWeight: 500,
+                                                            height: 24,
+                                                            fontSize: '0.75rem'
+                                                        }}
+                                                    />
+                                                </Box>
+                                            )}
+                                            <Box display="flex" justifyContent="center" my={1} sx={{ opacity: 0.7 }}>
+                                                <Typography variant="caption" sx={{ fontStyle: 'italic', color: 'text.secondary' }}>
+                                                    {msg.message}
+                                                </Typography>
+                                            </Box>
                                         </Box>
                                     );
                                 }
@@ -210,69 +256,92 @@ export default function ChatSidebar({
                                 const isEditing = editingMessageId === msg.id;
 
                                 return (
-                                    <Box
-                                        key={msg.id || Math.random()}
-                                        sx={{
-                                            bgcolor: isOwnMessage ? 'primary.dark' : 'action.hover',
-                                            p: 1.5,
-                                            borderRadius: 1,
-                                            position: 'relative'
-                                        }}
-                                    >
-                                        <Box display="flex" justifyContent="space-between" alignItems="start">
-                                            <Box flex={1}>
-                                                <Typography variant="caption" color="text.secondary" fontWeight="bold">
-                                                    {msg.username}
-                                                    {msg.is_edited && (
-                                                        <Typography component="span" variant="caption" sx={{ ml: 1, fontStyle: 'italic', opacity: 0.7 }}>
-                                                            (edited)
-                                                        </Typography>
-                                                    )}
-                                                </Typography>
-
-                                                {isEditing ? (
-                                                    <Box mt={1}>
-                                                        <TextField
-                                                            fullWidth
-                                                            size="small"
-                                                            value={editContent}
-                                                            onChange={(e) => setEditContent(e.target.value)}
-                                                            autoFocus
-                                                            multiline
-                                                            maxRows={4}
-                                                        />
-                                                        <Box display="flex" gap={1} mt={1}>
-                                                            <Button size="small" variant="contained" onClick={handleSaveEdit}>Save</Button>
-                                                            <Button size="small" variant="outlined" onClick={() => setEditingMessageId(null)}>Cancel</Button>
-                                                        </Box>
-                                                    </Box>
-                                                ) : (
-                                                    <Typography variant="body2" sx={{ mt: 0.5 }}>
-                                                        {msg.message}
-                                                    </Typography>
-                                                )}
+                                    <Box key={msg.id || Math.random()}>
+                                        {showDateHeader && (
+                                            <Box display="flex" justifyContent="center" my={2}>
+                                                <Chip
+                                                    label={getMessageDateHeader(msg.created_at)}
+                                                    size="small"
+                                                    sx={{
+                                                        opacity: 0.8,
+                                                        bgcolor: 'action.selected',
+                                                        fontWeight: 500,
+                                                        height: 24,
+                                                        fontSize: '0.75rem'
+                                                    }}
+                                                />
                                             </Box>
+                                        )}
+                                        <Box
+                                            sx={{
+                                                bgcolor: isOwnMessage ? 'primary.dark' : 'action.hover',
+                                                p: 1.5,
+                                                borderRadius: 1,
+                                                position: 'relative'
+                                            }}
+                                        >
+                                            <Box display="flex" justifyContent="space-between" alignItems="start">
+                                                <Box flex={1}>
+                                                    <Typography variant="caption" color="text.secondary" fontWeight="bold">
+                                                        {msg.username}
+                                                        {msg.is_edited && (
+                                                            <Typography component="span" variant="caption" sx={{ ml: 1, fontStyle: 'italic', opacity: 0.7 }}>
+                                                                (edited)
+                                                            </Typography>
+                                                        )}
+                                                    </Typography>
 
-                                            {isOwnMessage && !isEditing && (
-                                                <Box display="flex" flexDirection="column" alignItems="flex-end">
-                                                    <Box display="flex" gap={0.5}>
-                                                        <IconButton size="small" onClick={() => handleStartEdit(msg.id!, msg.message)} sx={{ opacity: 0.7 }}>
-                                                            <Edit2 size={14} />
-                                                        </IconButton>
-                                                        <IconButton size="small" onClick={() => handleDeleteClick(msg.id!)} sx={{ opacity: 0.7, '&:hover': { color: 'error.main' } }}>
-                                                            <Trash2 size={14} />
-                                                        </IconButton>
-                                                    </Box>
-                                                    {msg.seen_by && msg.seen_by.length > 0 && (
-                                                        <Tooltip title={`Seen by ${msg.seen_by.length} users`}>
-                                                            <Box display="flex" alignItems="center" mt={0.5} sx={{ opacity: 0.6 }}>
-                                                                <Eye size={14} />
-                                                                <Typography variant="caption" sx={{ ml: 0.5, fontSize: '0.75rem' }}>{msg.seen_by.length}</Typography>
+                                                    {isEditing ? (
+                                                        <Box mt={1}>
+                                                            <TextField
+                                                                fullWidth
+                                                                size="small"
+                                                                value={editContent}
+                                                                onChange={(e) => setEditContent(e.target.value)}
+                                                                autoFocus
+                                                                multiline
+                                                                maxRows={4}
+                                                            />
+                                                            <Box display="flex" gap={1} mt={1}>
+                                                                <Button size="small" variant="contained" onClick={handleSaveEdit}>Save</Button>
+                                                                <Button size="small" variant="outlined" onClick={() => setEditingMessageId(null)}>Cancel</Button>
                                                             </Box>
-                                                        </Tooltip>
+                                                        </Box>
+                                                    ) : (
+                                                        <>
+                                                            <Typography variant="body2" sx={{ mt: 0.5 }}>
+                                                                {msg.message}
+                                                            </Typography>
+                                                            <Box display="flex" justifyContent="flex-end" mt={0.5}>
+                                                                <Typography variant="caption" sx={{ fontSize: '0.7rem', opacity: 0.7, color: 'text.secondary' }}>
+                                                                    {formatMessageTime(msg.created_at)}
+                                                                </Typography>
+                                                            </Box>
+                                                        </>
                                                     )}
                                                 </Box>
-                                            )}
+
+                                                {isOwnMessage && !isEditing && (
+                                                    <Box display="flex" flexDirection="column" alignItems="flex-end" ml={1}>
+                                                        <Box display="flex" gap={0.5}>
+                                                            <IconButton size="small" onClick={() => handleStartEdit(msg.id!, msg.message)} sx={{ opacity: 0.7, p: 0.5 }}>
+                                                                <Edit2 size={12} />
+                                                            </IconButton>
+                                                            <IconButton size="small" onClick={() => handleDeleteClick(msg.id!)} sx={{ opacity: 0.7, '&:hover': { color: 'error.main' }, p: 0.5 }}>
+                                                                <Trash2 size={12} />
+                                                            </IconButton>
+                                                        </Box>
+                                                        {msg.seen_by && msg.seen_by.length > 0 && (
+                                                            <Tooltip title={`Seen by ${msg.seen_by.length} users`}>
+                                                                <Box display="flex" alignItems="center" mt={0.5} sx={{ opacity: 0.6 }}>
+                                                                    <Eye size={12} />
+                                                                    <Typography variant="caption" sx={{ ml: 0.5, fontSize: '0.7rem' }}>{msg.seen_by.length}</Typography>
+                                                                </Box>
+                                                            </Tooltip>
+                                                        )}
+                                                    </Box>
+                                                )}
+                                            </Box>
                                         </Box>
                                     </Box>
                                 );
