@@ -2,6 +2,9 @@ from rest_framework import generics, permissions, filters, exceptions
 from rest_framework.pagination import PageNumberPagination
 from .models import Room, RoomMembership, Message
 from .serializers import RoomSerializer, MessageSerializer
+from channels.layers import get_channel_layer
+from asgiref.sync import async_to_sync
+from utils.encryption_service import EncryptionService
 
 class RoomPagination(PageNumberPagination):
     page_size = 10
@@ -84,6 +87,32 @@ class JoinRoomView(APIView):
         )
         
         if created:
+            # Create system message
+            try:
+                content = f"{request.user.username} joined the room"
+                encrypted_content = EncryptionService.encrypt(content)
+                sys_msg = Message.objects.create(
+                    room=room,
+                    sender=None, # System Sender
+                    content=encrypted_content,
+                    message_type='join'
+                )
+                
+                channel_layer = get_channel_layer()
+                async_to_sync(channel_layer.group_send)(
+                    f'room_{room.id}',
+                    {
+                        'type': 'chat_message',
+                        'content': content,
+                        'username': 'System',
+                        'id': str(sys_msg.id),
+                        'sender_id': None,
+                        'message_type': 'join'
+                    }
+                )
+            except Exception as e:
+                print(f"Failed to create join message: {e}")
+
             return Response({
                 'message': 'Successfully joined room',
                 'room_id': str(room.id),

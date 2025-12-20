@@ -74,6 +74,7 @@ export interface ChatMessage {
     is_edited?: boolean;
     seen_by?: string[];
     created_at?: string;
+    message_type?: 'chat' | 'join' | 'leave' | 'system';
 }
 
 /**

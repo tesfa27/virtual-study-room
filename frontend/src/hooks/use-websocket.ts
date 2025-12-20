@@ -123,7 +123,9 @@ export const useWebSocket = (roomId: string) => {
                     message: data.message,
                     username: data.username,
                     is_edited: data.is_edited || false,
-                    seen_by: []
+                    seen_by: [],
+                    sender_id: data.sender_id,
+                    message_type: data.message_type
                 }]);
             }
         };

@@ -329,7 +329,8 @@ class RoomConsumer(AsyncWebsocketConsumer):
             'message': event['content'], # Mapping 'content' to 'message' for frontend compat
             'username': event['username'],
             'id': event.get('id'),
-            'sender_id': event.get('sender_id')
+            'sender_id': event.get('sender_id'),
+            'message_type': event.get('message_type', 'chat')
         }))
 
     async def message_update(self, event):

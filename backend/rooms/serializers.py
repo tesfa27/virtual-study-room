@@ -38,13 +38,19 @@ class RoomMembershipSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'user', 'joined_at']
 
 class MessageSerializer(serializers.ModelSerializer):
-    username = serializers.CharField(source='sender.username', read_only=True)
-    sender_id = serializers.CharField(source='sender.id', read_only=True)
+    username = serializers.SerializerMethodField()
+    sender_id = serializers.SerializerMethodField()
     
     class Meta:
         model = Message
-        fields = ['id', 'username', 'sender_id', 'is_edited', 'created_at']
-        read_only_fields = ['id', 'username', 'sender_id', 'is_edited', 'created_at']
+        fields = ['id', 'username', 'sender_id', 'is_edited', 'created_at', 'message_type']
+        read_only_fields = ['id', 'username', 'sender_id', 'is_edited', 'created_at', 'message_type']
+    
+    def get_username(self, obj):
+        return obj.sender.username if obj.sender else 'System'
+
+    def get_sender_id(self, obj):
+        return str(obj.sender.id) if obj.sender else None
     
     def to_representation(self, instance):
         data = super().to_representation(instance)

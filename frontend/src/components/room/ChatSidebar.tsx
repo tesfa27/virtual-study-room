@@ -196,6 +196,16 @@ export default function ChatSidebar({
                         )}
                         <Box flexGrow={1} display="flex" flexDirection="column" gap={1}>
                             {messages.map((msg) => {
+                                if (msg.message_type === 'join' || msg.message_type === 'system') {
+                                    return (
+                                        <Box key={msg.id || Math.random()} display="flex" justifyContent="center" my={1} sx={{ opacity: 0.7 }}>
+                                            <Typography variant="caption" sx={{ fontStyle: 'italic', color: 'text.secondary' }}>
+                                                {msg.message}
+                                            </Typography>
+                                        </Box>
+                                    );
+                                }
+
                                 const isOwnMessage = user?.username === msg.username;
                                 const isEditing = editingMessageId === msg.id;
 
