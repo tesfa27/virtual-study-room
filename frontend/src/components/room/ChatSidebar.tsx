@@ -17,7 +17,9 @@ import {
     MenuItem,
     Alert,
     Badge,
-    ListItemAvatar
+    ListItemAvatar,
+    Skeleton,
+    CircularProgress
 } from "@mui/material";
 import {
     MessageSquare,
@@ -43,7 +45,7 @@ interface ChatSidebarProps {
     isConnected: boolean;
     user: any; // Current User
     // Actions
-    onSendMessage: (msg: string) => void;
+    onSendMessage: (msg: string, repliedToId?: string) => void;
     onEditMessage: (id: string, content: string) => void;
     onDeleteMessage: (id: string) => void;
     onSendTyping: (isTyping: boolean) => void;
@@ -55,6 +57,12 @@ interface ChatSidebarProps {
     // Reactions
     onAddReaction: (id: string, emoji: string) => void;
     onRemoveReaction: (id: string, emoji: string) => void;
+
+    // Pagination
+    onLoadMore?: () => void;
+    hasMore?: boolean;
+    isLoadingMore?: boolean;
+    isLoading?: boolean;
 }
 
 // Helper functions
@@ -104,7 +112,11 @@ export default function ChatSidebar({
     onPromoteUser,
     onMuteUser,
     onAddReaction,
-    onRemoveReaction
+    onRemoveReaction,
+    onLoadMore,
+    hasMore,
+    isLoadingMore,
+    isLoading
 }: ChatSidebarProps) {
     const displayUsers = useMemo(() => {
         // Temporary fix: Show all members as online since WebSocket presence is unreliable
@@ -119,34 +131,110 @@ export default function ChatSidebar({
         })).sort((a, b) => a.username.localeCompare(b.username));
     }, [allMembers]);
 
+    // Local State
     const [newMessage, setNewMessage] = useState("");
     const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+    const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
     const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
     const [selectedUser, setSelectedUser] = useState<any>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const chatContainerRef = useRef<HTMLDivElement>(null);
     const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    // Track if we have performed the initial scroll to bottom
+    const hasInitialScrolled = useRef(false);
+    // Track previous scroll height for pagination restoration
+    const previousScrollHeightRef = useRef<number>(0);
+    // Track last message ID to detect new messages
+    const lastMessageIdRef = useRef<string | null>(null);
+    const previousFirstMessageIdRef = useRef<string | null>(null);
 
-    // Scroll to bottom
-    const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    };
-
+    // Smart Scroll Logic & Pagination Restoration
     useEffect(() => {
-        scrollToBottom();
-        if (messages.length > 0) {
-            const latestMessage = messages[messages.length - 1];
-            if (latestMessage.username !== user?.username && latestMessage.id) {
-                onMarkSeen(latestMessage.id);
+        const container = chatContainerRef.current;
+        if (!container || messages.length === 0) return;
+
+        const currentFirstMessageId = messages[0]?.id;
+        const isPrepend = previousFirstMessageIdRef.current !== currentFirstMessageId;
+
+        // 0. Handle Pagination Scroll Restoration
+        // Only run if we actually prepended messages (found by checking first message ID)
+        if (previousScrollHeightRef.current > 0) {
+            if (isPrepend) {
+                const heightDifference = container.scrollHeight - previousScrollHeightRef.current;
+                if (heightDifference > 0) {
+                    container.scrollTop = heightDifference;
+                }
+                previousScrollHeightRef.current = 0;
+            } else {
+                // Messages updated (e.g. new message at bottom) but loadMore hasn't finished (no prepend yet).
+                // Do NOT reset previousScrollHeightRef. Just ignore auto-scroll.
+            }
+
+            // Ref updates
+            previousFirstMessageIdRef.current = currentFirstMessageId;
+            if (messages.length > 0) {
+                lastMessageIdRef.current = messages[messages.length - 1].id;
+            }
+            return;
+        }
+
+        // 1. Initial Load: Always scroll to bottom once messages are loaded
+        if (!hasInitialScrolled.current) {
+            container.scrollTop = container.scrollHeight;
+            hasInitialScrolled.current = true;
+            if (messages.length > 0) {
+                lastMessageIdRef.current = messages[messages.length - 1].id;
+                previousFirstMessageIdRef.current = messages[0]?.id;
+            }
+            return;
+        }
+
+        // 2. Determine if we should auto-scroll for new messages
+        const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+        const isNearBottom = distanceToBottom < 150;
+
+        // Check if the latest message is from current user AND is new
+        const lastMessage = messages[messages.length - 1];
+        const isOwnMessage = lastMessage?.username === user?.username;
+        const isNewMessage = lastMessage?.id !== lastMessageIdRef.current;
+
+        if (isNearBottom || (isOwnMessage && isNewMessage)) {
+            container.scrollTop = container.scrollHeight;
+        }
+
+        // Update refs
+        lastMessageIdRef.current = lastMessage?.id || null;
+        previousFirstMessageIdRef.current = currentFirstMessageId;
+
+        // Mark as seen logic
+        if (messages.length > 0 && lastMessage) {
+            if (lastMessage.username !== user?.username && lastMessage.id) {
+                onMarkSeen(lastMessage.id);
             }
         }
     }, [messages, user?.username, onMarkSeen]);
+
+    // Handle Scroll for Pagination
+    const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+        const container = e.currentTarget;
+        if (container.scrollTop < 50 && hasMore && !isLoadingMore) {
+            previousScrollHeightRef.current = container.scrollHeight;
+            onLoadMore?.();
+        }
+    };
+
+    // Reset initial scroll when room changes (if component doesn't unmount)
+    useEffect(() => {
+        hasInitialScrolled.current = false;
+    }, [allMembers]); // allMembers changes when room changes/loads
 
     // Chat Handlers
     const handleSendMessage = (e: React.FormEvent) => {
         e.preventDefault();
         if (newMessage.trim()) {
-            onSendMessage(newMessage);
+            onSendMessage(newMessage, replyingTo?.id);
             setNewMessage("");
+            setReplyingTo(null);
             onSendTyping(false);
             if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
         }
@@ -157,6 +245,10 @@ export default function ChatSidebar({
         onSendTyping(true);
         if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
         typingTimeoutRef.current = setTimeout(() => onSendTyping(false), 2000);
+    };
+
+    const handleCancelReply = () => {
+        setReplyingTo(null);
     };
 
 
@@ -224,71 +316,92 @@ export default function ChatSidebar({
             </Box>
 
             {/* Content Content (Chat or Users) */}
-            <Box flexGrow={1} overflow="auto" p={2} display="flex" flexDirection="column">
+            <Box ref={chatContainerRef} onScroll={handleScroll} flexGrow={1} overflow="auto" p={2} display="flex" flexDirection="column">
                 {activeTab === 'chat' ? (
                     <>
                         {!isConnected && (
                             <Alert severity="warning" sx={{ mb: 2 }}>Connecting...</Alert>
                         )}
-                        <Box flexGrow={1} display="flex" flexDirection="column" gap={1}>
-                            {messages.map((msg, index) => {
-                                const prevMsg = index > 0 ? messages[index - 1] : undefined;
-                                const showDateHeader = isNewDay(msg.created_at, prevMsg?.created_at);
-                                const dateHeader = getMessageDateHeader(msg.created_at);
 
-                                if (msg.message_type === 'join' || msg.message_type === 'leave' || msg.message_type === 'system') {
-                                    return (
-                                        <Box key={msg.id || Math.random()}>
-                                            {showDateHeader && (
-                                                <Box display="flex" justifyContent="center" my={2}>
-                                                    <Chip
-                                                        label={dateHeader}
-                                                        size="small"
-                                                        sx={{
-                                                            opacity: 0.8,
-                                                            bgcolor: 'action.selected',
-                                                            fontWeight: 500,
-                                                            height: 24,
-                                                            fontSize: '0.75rem'
-                                                        }}
-                                                    />
-                                                </Box>
-                                            )}
-                                            <Box display="flex" justifyContent="center" my={1} sx={{ opacity: 0.7 }}>
-                                                <Typography variant="caption" sx={{ fontStyle: 'italic', color: 'text.secondary' }}>
-                                                    {msg.message}
-                                                </Typography>
-                                            </Box>
+                        {isLoadingMore && (
+                            <Box display="flex" justifyContent="center" p={1} width="100%">
+                                <CircularProgress size={24} />
+                            </Box>
+                        )}
+
+                        {isLoading ? (
+                            <Box flexGrow={1} display="flex" flexDirection="column" gap={2} p={1}>
+                                {[1, 2, 3, 4, 5, 6].map((i) => (
+                                    <Box key={i} display="flex" flexDirection="column" alignItems={i % 2 === 0 ? 'flex-end' : 'flex-start'}>
+                                        <Box display="flex" flexDirection={i % 2 === 0 ? 'row-reverse' : 'row'} gap={1} width="100%">
+                                            <Skeleton variant="circular" width={32} height={32} />
+                                            <Skeleton variant="rounded" width="70%" height={60} />
                                         </Box>
+                                    </Box>
+                                ))}
+                            </Box>
+                        ) : (
+                            <Box flexGrow={1} display="flex" flexDirection="column" gap={1}>
+                                {messages.map((msg, index) => {
+                                    const prevMsg = index > 0 ? messages[index - 1] : undefined;
+                                    const showDateHeader = isNewDay(msg.created_at, prevMsg?.created_at);
+                                    const dateHeader = getMessageDateHeader(msg.created_at);
+
+                                    if (msg.message_type === 'join' || msg.message_type === 'leave' || msg.message_type === 'system') {
+                                        return (
+                                            <Box key={msg.id || Math.random()}>
+                                                {showDateHeader && (
+                                                    <Box display="flex" justifyContent="center" my={2}>
+                                                        <Chip
+                                                            label={dateHeader}
+                                                            size="small"
+                                                            sx={{
+                                                                opacity: 0.8,
+                                                                bgcolor: 'action.selected',
+                                                                fontWeight: 500,
+                                                                height: 24,
+                                                                fontSize: '0.75rem'
+                                                            }}
+                                                        />
+                                                    </Box>
+                                                )}
+                                                <Box display="flex" justifyContent="center" my={1} sx={{ opacity: 0.7 }}>
+                                                    <Typography variant="caption" sx={{ fontStyle: 'italic', color: 'text.secondary' }}>
+                                                        {msg.message}
+                                                    </Typography>
+                                                </Box>
+                                            </Box>
+                                        );
+                                    }
+
+                                    const isOwnMessage = user?.username === msg.username;
+                                    const isEditing = editingMessageId === msg.id;
+
+                                    return (
+                                        <MessageItem
+                                            key={msg.id || Math.random()}
+                                            message={msg}
+                                            user={user}
+                                            isOwnMessage={isOwnMessage}
+                                            showDateHeader={showDateHeader}
+                                            dateHeader={dateHeader}
+                                            isEditing={isEditing}
+                                            onEdit={(id) => setEditingMessageId(id)}
+                                            onDelete={handleDeleteClick}
+                                            onReply={(message) => setReplyingTo(message)}
+                                            onSaveEdit={(id, content) => {
+                                                onEditMessage(id, content);
+                                                setEditingMessageId(null);
+                                            }}
+                                            onCancelEdit={() => setEditingMessageId(null)}
+                                            onAddReaction={onAddReaction}
+                                            onRemoveReaction={onRemoveReaction}
+                                        />
                                     );
-                                }
-
-                                const isOwnMessage = user?.username === msg.username;
-                                const isEditing = editingMessageId === msg.id;
-
-                                return (
-                                    <MessageItem
-                                        key={msg.id || Math.random()}
-                                        message={msg}
-                                        user={user}
-                                        isOwnMessage={isOwnMessage}
-                                        showDateHeader={showDateHeader}
-                                        dateHeader={dateHeader}
-                                        isEditing={isEditing}
-                                        onEdit={(id) => setEditingMessageId(id)}
-                                        onDelete={handleDeleteClick}
-                                        onSaveEdit={(id, content) => {
-                                            onEditMessage(id, content);
-                                            setEditingMessageId(null);
-                                        }}
-                                        onCancelEdit={() => setEditingMessageId(null)}
-                                        onAddReaction={onAddReaction}
-                                        onRemoveReaction={onRemoveReaction}
-                                    />
-                                );
-                            })}
-                            <div ref={messagesEndRef} />
-                        </Box>
+                                })}
+                                <div ref={messagesEndRef} />
+                            </Box>
+                        )}
                     </>
                 ) : (
                     <>
@@ -357,6 +470,36 @@ export default function ChatSidebar({
                             {Array.from(typingUsers.values()).join(', ')} {typingUsers.size === 1 ? 'is' : 'are'} typing...
                         </Typography>
                     )}
+
+                    {/* Reply Preview */}
+                    {replyingTo && (
+                        <Box
+                            sx={{
+                                mb: 1,
+                                p: 1,
+                                bgcolor: 'action.hover',
+                                borderRadius: 1,
+                                borderLeft: 3,
+                                borderColor: 'primary.main',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'start'
+                            }}
+                        >
+                            <Box flex={1}>
+                                <Typography variant="caption" color="primary" fontWeight="bold">
+                                    Replying to {replyingTo.username}
+                                </Typography>
+                                <Typography variant="body2" sx={{ opacity: 0.7, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {replyingTo.message}
+                                </Typography>
+                            </Box>
+                            <IconButton size="small" onClick={handleCancelReply} sx={{ ml: 1 }}>
+                                <Trash2 size={14} />
+                            </IconButton>
+                        </Box>
+                    )}
+
                     <form onSubmit={handleSendMessage}>
                         <Box display="flex" gap={1}>
                             <TextField

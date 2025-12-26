@@ -76,6 +76,12 @@ export interface ChatMessage {
     created_at?: string;
     message_type?: 'chat' | 'join' | 'leave' | 'system';
     reactions?: { [emoji: string]: string[] };
+    replied_to_message?: {
+        id: string;
+        username: string;
+        message: string;
+        created_at: string;
+    } | null;
 }
 
 /**
@@ -90,11 +96,18 @@ export async function joinRoom(id: string): Promise<{ message: string; role: str
     );
 }
 
+export interface PaginatedResponse<T> {
+    count: number;
+    next: string | null;
+    previous: string | null;
+    results: T[];
+}
+
 /**
  * Get room messages
  */
-export async function getRoomMessages(id: string): Promise<ChatMessage[]> {
-    return apiClient<ChatMessage[]>(`/rooms/${id}/messages/`);
+export async function getRoomMessages(id: string, page = 1): Promise<PaginatedResponse<ChatMessage>> {
+    return apiClient<PaginatedResponse<ChatMessage>>(`/rooms/${id}/messages/?page=${page}`);
 }
 
 /**

@@ -378,7 +378,8 @@ class RoomConsumer(AsyncWebsocketConsumer):
             'id': event.get('id'),
             'sender_id': event.get('sender_id'),
             'message_type': event.get('message_type', 'chat'),
-            'created_at': event.get('timestamp') or event.get('created_at')
+            'created_at': event.get('timestamp') or event.get('created_at'),
+            'replied_to_message': event.get('replied_to_message')
         }))
 
     async def message_update(self, event):

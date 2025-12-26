@@ -205,6 +205,40 @@ export default function MessageItem({
                             minWidth: 120
                         }}
                     >
+                        {/* Replied Message Preview */}
+                        {message.replied_to_message && (
+                            <Box
+                                sx={{
+                                    mb: 1,
+                                    pb: 1,
+                                    borderLeft: 3,
+                                    borderColor: isOwnMessage ? 'primary.light' : 'primary.main',
+                                    pl: 1,
+                                    opacity: 0.8,
+                                    bgcolor: isOwnMessage ? 'rgba(0,0,0,0.1)' : 'rgba(0,0,0,0.05)',
+                                    borderRadius: 0.5,
+                                    p: 0.5
+                                }}
+                            >
+                                <Typography variant="caption" sx={{ fontWeight: 'bold', fontSize: '0.7rem' }}>
+                                    {message.replied_to_message.username}
+                                </Typography>
+                                <Typography
+                                    variant="caption"
+                                    sx={{
+                                        display: 'block',
+                                        opacity: 0.7,
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                        whiteSpace: 'nowrap',
+                                        fontSize: '0.7rem'
+                                    }}
+                                >
+                                    {message.replied_to_message.message}
+                                </Typography>
+                            </Box>
+                        )}
+
                         {isEditing ? (
                             <Box mt={1} minWidth={200}>
                                 <TextField
@@ -329,6 +363,12 @@ export default function MessageItem({
                             visibility: isHovered || Boolean(anchorEl) ? 'visible' : 'hidden'
                         }}
                     >
+                        <Tooltip title="Reply">
+                            <IconButton size="small" onClick={() => onReply?.(message)}>
+                                <Reply size={16} />
+                            </IconButton>
+                        </Tooltip>
+
                         <Tooltip title="Add Reaction">
                             <IconButton size="small" onClick={openPicker}>
                                 <Smile size={16} />
@@ -351,8 +391,11 @@ export default function MessageItem({
                     sx: { minWidth: 150 }
                 }}
             >
-                <MenuItem onClick={handleMenuClose} disabled>
-                    <Reply size={16} style={{ marginRight: 8 }} /> Reply (Soon)
+                <MenuItem onClick={() => {
+                    handleMenuClose();
+                    onReply?.(message);
+                }}>
+                    <Reply size={16} style={{ marginRight: 8 }} /> Reply
                 </MenuItem>
                 <MenuItem onClick={handleMenuClose} disabled>
                     <Forward size={16} style={{ marginRight: 8 }} /> Forward (Soon)

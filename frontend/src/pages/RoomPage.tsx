@@ -96,6 +96,11 @@ export default function RoomPage() {
             onMuteUser={ws.muteUser}
             onAddReaction={ws.addReaction}
             onRemoveReaction={ws.removeReaction}
+            // Pagination
+            onLoadMore={ws.loadMoreMessages}
+            hasMore={ws.hasMore}
+            isLoadingMore={ws.isLoadingMore}
+            isLoading={ws.isLoading}
         />
     );
 

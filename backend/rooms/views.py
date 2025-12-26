@@ -40,9 +40,15 @@ class RoomDetailView(generics.RetrieveUpdateDestroyAPIView):
         # Optional: restrict updates to owner, read to everyone/members
         return super().get_queryset()
 
+class MessagePagination(PageNumberPagination):
+    page_size = 50
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
 class RoomMessagesView(generics.ListAPIView):
     serializer_class = MessageSerializer
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = MessagePagination
     
     def get_queryset(self):
         room_id = self.kwargs['room_id']
@@ -52,7 +58,7 @@ class RoomMessagesView(generics.ListAPIView):
         if not RoomMembership.objects.filter(room_id=room_id, user=user).exists():
             raise exceptions.PermissionDenied("You must join this room to view messages.")
             
-        return Message.objects.filter(room_id=room_id).order_by('created_at')
+        return Message.objects.filter(room_id=room_id).order_by('-created_at')
 
 from rest_framework.views import APIView
 from rest_framework.response import Response
