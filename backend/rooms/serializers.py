@@ -48,17 +48,39 @@ class ReactionSerializer(serializers.ModelSerializer):
 class MessageSerializer(serializers.ModelSerializer):
     username = serializers.SerializerMethodField()
     sender_id = serializers.SerializerMethodField()
+    replied_to_message = serializers.SerializerMethodField()
     
     class Meta:
         model = Message
-        fields = ['id', 'username', 'sender_id', 'is_edited', 'created_at', 'message_type']
-        read_only_fields = ['id', 'username', 'sender_id', 'is_edited', 'created_at', 'message_type']
+        fields = ['id', 'username', 'sender_id', 'is_edited', 'created_at', 'message_type', 'replied_to', 'replied_to_message']
+        read_only_fields = ['id', 'username', 'sender_id', 'is_edited', 'created_at', 'message_type', 'replied_to_message']
     
     def get_username(self, obj):
         return obj.sender.username if obj.sender else 'System'
 
     def get_sender_id(self, obj):
         return str(obj.sender.id) if obj.sender else None
+    
+    def get_replied_to_message(self, obj):
+        """Return basic info about the message being replied to"""
+        if not obj.replied_to:
+            return None
+        
+        try:
+            from utils.encryption_service import EncryptionService
+            return {
+                'id': str(obj.replied_to.id),
+                'username': obj.replied_to.sender.username if obj.replied_to.sender else 'System',
+                'message': EncryptionService.decrypt(obj.replied_to.content),
+                'created_at': obj.replied_to.created_at
+            }
+        except:
+            return {
+                'id': str(obj.replied_to.id),
+                'username': obj.replied_to.sender.username if obj.replied_to.sender else 'System',
+                'message': '[Encrypted]',
+                'created_at': obj.replied_to.created_at
+            }
     
     def to_representation(self, instance):
         data = super().to_representation(instance)

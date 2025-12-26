@@ -51,8 +51,9 @@ class RoomConsumer(AsyncWebsocketConsumer):
         if message_type == 'chat_message':
             # Support 'message' key for backward compatibility
             content = data.get('content') or data.get('message')
+            replied_to_id = data.get('replied_to_id')  # Optional: ID of message being replied to
             if content:
-                await self.handle_chat_message(content)
+                await self.handle_chat_message(content, replied_to_id)
         elif message_type == 'edit_message':
             await self.handle_edit_message(data.get('message_id'), data.get('content'))
         elif message_type == 'delete_message':
@@ -78,7 +79,7 @@ class RoomConsumer(AsyncWebsocketConsumer):
         elif message_type == 'mute_user':
             await self.handle_mute_user(data.get('user_id'), data.get('duration'))
 
-    async def handle_chat_message(self, content):
+    async def handle_chat_message(self, content, replied_to_id=None):
         # Check if user is muted
         is_muted = await self.is_user_muted()
         if is_muted:
@@ -88,21 +89,27 @@ class RoomConsumer(AsyncWebsocketConsumer):
         # 1. Encrypt
         encrypted_content = EncryptionService.encrypt(content)
         
-        # 2. Save
-        message = await self.save_message(self.room_id, self.user, encrypted_content)
+        # 2. Save (with optional reply reference)
+        message = await self.save_message(self.room_id, self.user, encrypted_content, replied_to_id)
 
-        # 3. Broadcast
+        # 3. Get replied_to_message info if exists
+        replied_to_message = None
+        if replied_to_id:
+            replied_to_message = await self.get_replied_to_info(replied_to_id)
+
+        # 4. Broadcast
         payload = {
             'type': 'chat_message',
             'id': str(message.id),
             'content': content,
             'username': self.user.username,
             'sender_id': str(self.user.id),
-            'timestamp': str(message.created_at)
+            'timestamp': str(message.created_at),
+            'replied_to_message': replied_to_message
         }
         await self.channel_layer.group_send(self.room_group_name, payload)
         
-        # 4. Notify Global User Groups (Simulated by iterating or just relying on room broadcast currently)
+        # 5. Notify Global User Groups (Simulated by iterating or just relying on room broadcast currently)
         # Requirement: "broadcast to global_user_group for each member"
         # Since everyone is in the room group, the room broadcast covers the immediate UI update.
         # But if we need to update "sidebar list" for users NOT in the room (e.g. unread count), we'd push to user_group_name.
@@ -486,8 +493,40 @@ class RoomConsumer(AsyncWebsocketConsumer):
 
     # Database Helpers
     @database_sync_to_async
-    def save_message(self, room_id, user, encrypted_content):
-        return Message.objects.create(room_id=room_id, sender=user, content=encrypted_content)
+    def save_message(self, room_id, user, encrypted_content, replied_to_id=None):
+        return Message.objects.create(
+            room_id=room_id, 
+            sender=user, 
+            content=encrypted_content,
+            replied_to_id=replied_to_id if replied_to_id else None
+        )
+
+    @database_sync_to_async
+    def get_replied_to_info(self, message_id):
+        """Get basic info about the message being replied to"""
+        try:
+            message = Message.objects.get(id=message_id)
+            decrypted_content = EncryptionService.decrypt(message.content)
+            return {
+                'id': str(message.id),
+                'username': message.sender.username if message.sender else 'System',
+                'message': decrypted_content,
+                'created_at': str(message.created_at)
+            }
+        except Message.DoesNotExist:
+            return None
+        except Exception:
+            # If decryption fails, return encrypted placeholder
+            try:
+                message = Message.objects.get(id=message_id)
+                return {
+                    'id': str(message.id),
+                    'username': message.sender.username if message.sender else 'System',
+                    'message': '[Encrypted]',
+                    'created_at': str(message.created_at)
+                }
+            except:
+                return None
 
     @database_sync_to_async
     def get_message(self, message_id):

@@ -45,6 +45,9 @@ class Message(models.Model):
     content = models.TextField() # Encrypted content
     is_edited = models.BooleanField(default=False)
     
+    # Reply feature: reference to the message being replied to
+    replied_to = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='replies')
+    
     MESSAGE_TYPES = [
         ('chat', 'Chat'),
         ('join', 'Join'),
