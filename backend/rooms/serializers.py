@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Room, RoomMembership, Message
+from .models import Room, RoomMembership, Message, Reaction
 from django.contrib.auth import get_user_model
 from utils.encryption_service import EncryptionService
 
@@ -37,6 +37,14 @@ class RoomMembershipSerializer(serializers.ModelSerializer):
         fields = ['id', 'room', 'user', 'username', 'role', 'joined_at']
         read_only_fields = ['id', 'user', 'joined_at']
 
+class ReactionSerializer(serializers.ModelSerializer):
+    username = serializers.ReadOnlyField(source='user.username')
+
+    class Meta:
+        model = Reaction
+        fields = ['id', 'emoji', 'user', 'username', 'created_at']
+        read_only_fields = ['id', 'user', 'username', 'created_at']
+
 class MessageSerializer(serializers.ModelSerializer):
     username = serializers.SerializerMethodField()
     sender_id = serializers.SerializerMethodField()
@@ -62,4 +70,13 @@ class MessageSerializer(serializers.ModelSerializer):
             
         # Get list of user IDs who have seen this message
         data['seen_by'] = list(map(str, instance.seen_by.values_list('user_id', flat=True)))
+        
+        # Aggregate reactions
+        reactions = {}
+        for reaction in instance.reactions.all():
+            if reaction.emoji not in reactions:
+                reactions[reaction.emoji] = []
+            reactions[reaction.emoji].append(str(reaction.user.id))
+        
+        data['reactions'] = reactions
         return data

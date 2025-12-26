@@ -61,6 +61,13 @@ class RoomConsumer(AsyncWebsocketConsumer):
             await self.handle_typing(data.get('is_typing', False))
         elif message_type == 'mark_seen':
             await self.handle_mark_seen(data.get('message_id'))
+        
+        # Reaction Handlers
+        elif message_type == 'add_reaction':
+            await self.handle_add_reaction(data.get('message_id'), data.get('emoji'))
+        elif message_type == 'remove_reaction':
+            await self.handle_remove_reaction(data.get('message_id'), data.get('emoji'))
+
         # Group Management
         elif message_type == 'kick_user':
             await self.handle_kick_user(data.get('user_id'))
@@ -181,6 +188,39 @@ class RoomConsumer(AsyncWebsocketConsumer):
                 'username': self.user.username
             }
         )
+    
+    # Reaction Handlers Implementation
+    async def handle_add_reaction(self, message_id, emoji):
+        if not message_id or not emoji:
+            return
+
+        success = await self.add_reaction_to_db(message_id, self.user, emoji)
+        if success:
+            await self.channel_layer.group_send(
+                self.room_group_name,
+                {
+                    'type': 'message_reaction_added',
+                    'message_id': message_id,
+                    'user_id': str(self.user.id),
+                    'emoji': emoji
+                }
+            )
+
+    async def handle_remove_reaction(self, message_id, emoji):
+        if not message_id or not emoji:
+            return
+
+        success = await self.remove_reaction_from_db(message_id, self.user, emoji)
+        if success:
+            await self.channel_layer.group_send(
+                self.room_group_name,
+                {
+                    'type': 'message_reaction_removed',
+                    'message_id': message_id,
+                    'user_id': str(self.user.id),
+                    'emoji': emoji
+                }
+            )
 
     # Group Management Handlers
     async def handle_kick_user(self, user_id):
@@ -373,6 +413,22 @@ class RoomConsumer(AsyncWebsocketConsumer):
             'username': event['username']
         }))
 
+    async def message_reaction_added(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'message_reaction_added',
+            'message_id': event['message_id'],
+            'user_id': event['user_id'],
+            'emoji': event['emoji']
+        }))
+
+    async def message_reaction_removed(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'message_reaction_removed',
+            'message_id': event['message_id'],
+            'user_id': event['user_id'],
+            'emoji': event['emoji']
+        }))
+
     # Group Management Broadcast Handlers
     async def user_kicked(self, event):
         """Notify user they were kicked"""
@@ -462,6 +518,41 @@ class RoomConsumer(AsyncWebsocketConsumer):
                 message_id=message_id,
                 user=user
             )
+
+    @database_sync_to_async
+    def add_reaction_to_db(self, message_id, user, emoji):
+        from .models import Reaction
+        try:
+            # Basic validation
+            if not message_id or not emoji:
+                return False
+            
+            # Use get_or_create to avoid duplicates (though model has unique constaint)
+            Reaction.objects.get_or_create(
+                message_id=message_id,
+                user=user,
+                emoji=emoji
+            )
+            return True
+        except Exception:
+            # Catch potential integrity errors or invalid message_id
+            return False
+
+    @database_sync_to_async
+    def remove_reaction_from_db(self, message_id, user, emoji):
+        from .models import Reaction
+        try:
+            reaction = Reaction.objects.filter(
+                message_id=message_id,
+                user=user,
+                emoji=emoji
+            ).first()
+            if reaction:
+                reaction.delete()
+                return True
+            return False
+        except Exception:
+            return False
 
     @database_sync_to_async
     def get_unread_count(self, user, room_id):
