@@ -40,10 +40,57 @@ class CustomTokenObtainPairView(TokenObtainPairView):
                 max_age=api_settings.REFRESH_TOKEN_LIFETIME.total_seconds(), # Match expiry
             )
 
-            # 4. Return a simple success message
-            response.data['message'] = 'Login successful' 
             
         return response
+
+class CustomTokenRefreshView(generics.GenericAPIView):
+    """
+    Custom token refresh view that reads refresh token from HttpOnly cookie
+    and returns new access token as a cookie.
+    """
+    permission_classes = (permissions.AllowAny,)
+    
+    def post(self, request, *args, **kwargs):
+        from rest_framework_simplejwt.tokens import RefreshToken
+        from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
+        
+        # Read refresh token from HttpOnly cookie
+        refresh_token = request.COOKIES.get('refresh_token')
+        
+        if not refresh_token:
+            return Response(
+                {'error': 'Refresh token not found'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        
+        try:
+            # Validate and refresh the token
+            refresh = RefreshToken(refresh_token)
+            access_token = str(refresh.access_token)
+            
+            # Create response
+            response = Response(
+                {'message': 'Token refreshed successfully'},
+                status=status.HTTP_200_OK
+            )
+            
+            # Set new access token as cookie
+            response.set_cookie(
+                key='access_token',
+                value=access_token,
+                httponly=False,          # JS must be able to read this
+                secure=True,             # Use HTTPS in production
+                samesite='Lax',
+                max_age=api_settings.ACCESS_TOKEN_LIFETIME.total_seconds(),
+            )
+            
+            return response
+            
+        except (TokenError, InvalidToken) as e:
+            return Response(
+                {'error': 'Invalid or expired refresh token'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
 
 class RegisterView(generics.CreateAPIView):
     queryset = CustomUser.objects.all()

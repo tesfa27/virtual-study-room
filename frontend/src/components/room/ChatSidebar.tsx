@@ -107,47 +107,17 @@ export default function ChatSidebar({
     onRemoveReaction
 }: ChatSidebarProps) {
     const displayUsers = useMemo(() => {
-        console.log('ChatSidebar: allMembers:', allMembers);
-        console.log('ChatSidebar: onlineUsers:', users);
+        // Temporary fix: Show all members as online since WebSocket presence is unreliable
+        // TODO: Implement proper presence tracking with heartbeats
         if (!allMembers) return users.map(u => ({ ...u, isOnline: true }));
 
-        const map = new Map<string, any>();
-
-        // Populate from allMembers
-        allMembers.forEach(m => {
-            const userId = String(m.user);
-            map.set(userId, {
-                id: userId,
-                username: m.username,
-                role: m.role,
-                isOnline: false
-            });
-        });
-
-        // Update online status
-        users.forEach(u => {
-            const userId = String(u.id);
-            if (map.has(userId)) {
-                const existing = map.get(userId);
-                existing.isOnline = true;
-            } else {
-                // Online but not in member list (e.g. guests?)
-                map.set(userId, {
-                    id: userId,
-                    username: u.username,
-                    role: u.role || 'member',
-                    isOnline: true
-                });
-            }
-        });
-
-        return Array.from(map.values())
-            .sort((a, b) => {
-                // Sort checks: Online first, then Alpha
-                if (a.isOnline === b.isOnline) return a.username.localeCompare(b.username);
-                return a.isOnline ? -1 : 1;
-            });
-    }, [allMembers, users]);
+        return allMembers.map(m => ({
+            id: String(m.user),
+            username: m.username,
+            role: m.role,
+            isOnline: true // Assume all members are online for now
+        })).sort((a, b) => a.username.localeCompare(b.username));
+    }, [allMembers]);
 
     const [newMessage, setNewMessage] = useState("");
     const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
