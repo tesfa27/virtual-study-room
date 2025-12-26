@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from "react";
+import MessageItem from './MessageItem';
 import {
     Box,
     Typography,
@@ -51,6 +52,9 @@ interface ChatSidebarProps {
     onKickUser: (id: string) => void;
     onPromoteUser: (id: string, role: string) => void;
     onMuteUser: (id: string, duration: number) => void;
+    // Reactions
+    onAddReaction: (id: string, emoji: string) => void;
+    onRemoveReaction: (id: string, emoji: string) => void;
 }
 
 // Helper functions
@@ -83,7 +87,6 @@ const isNewDay = (currentIso?: string, prevIso?: string) => {
 };
 
 export default function ChatSidebar({
-    // ... existing props ...
     activeTab,
     setActiveTab,
     messages,
@@ -99,14 +102,17 @@ export default function ChatSidebar({
     onMarkSeen,
     onKickUser,
     onPromoteUser,
-    onMuteUser
+    onMuteUser,
+    onAddReaction,
+    onRemoveReaction
 }: ChatSidebarProps) {
     const displayUsers = useMemo(() => {
+        console.log('ChatSidebar: allMembers:', allMembers);
+        console.log('ChatSidebar: onlineUsers:', users);
         if (!allMembers) return users.map(u => ({ ...u, isOnline: true }));
 
         const map = new Map<string, any>();
 
-        // Populate from allMembers
         // Populate from allMembers
         allMembers.forEach(m => {
             const userId = String(m.user);
@@ -118,7 +124,6 @@ export default function ChatSidebar({
             });
         });
 
-        // Update online status
         // Update online status
         users.forEach(u => {
             const userId = String(u.id);
@@ -144,10 +149,8 @@ export default function ChatSidebar({
             });
     }, [allMembers, users]);
 
-    // ... (keep default function body start) ...
     const [newMessage, setNewMessage] = useState("");
     const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
-    const [editContent, setEditContent] = useState("");
     const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
     const [selectedUser, setSelectedUser] = useState<any>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -186,18 +189,6 @@ export default function ChatSidebar({
         typingTimeoutRef.current = setTimeout(() => onSendTyping(false), 2000);
     };
 
-    const handleStartEdit = (messageId: string, currentContent: string) => {
-        setEditingMessageId(messageId);
-        setEditContent(currentContent);
-    };
-
-    const handleSaveEdit = () => {
-        if (editingMessageId && editContent.trim()) {
-            onEditMessage(editingMessageId, editContent);
-            setEditingMessageId(null);
-            setEditContent("");
-        }
-    };
 
     const handleDeleteClick = (id: string) => {
         if (window.confirm("Are you sure you want to delete this message?")) {
@@ -236,6 +227,8 @@ export default function ChatSidebar({
         handleUserMenuClose();
     };
 
+
+
     return (
         <Box sx={{ width: 320, display: 'flex', flexDirection: 'column', height: '100%' }}>
             {/* Tabs */}
@@ -271,6 +264,7 @@ export default function ChatSidebar({
                             {messages.map((msg, index) => {
                                 const prevMsg = index > 0 ? messages[index - 1] : undefined;
                                 const showDateHeader = isNewDay(msg.created_at, prevMsg?.created_at);
+                                const dateHeader = getMessageDateHeader(msg.created_at);
 
                                 if (msg.message_type === 'join' || msg.message_type === 'leave' || msg.message_type === 'system') {
                                     return (
@@ -278,7 +272,7 @@ export default function ChatSidebar({
                                             {showDateHeader && (
                                                 <Box display="flex" justifyContent="center" my={2}>
                                                     <Chip
-                                                        label={getMessageDateHeader(msg.created_at)}
+                                                        label={dateHeader}
                                                         size="small"
                                                         sx={{
                                                             opacity: 0.8,
@@ -303,105 +297,26 @@ export default function ChatSidebar({
                                 const isEditing = editingMessageId === msg.id;
 
                                 return (
-                                    <Box key={msg.id || Math.random()}>
-                                        {showDateHeader && (
-                                            <Box display="flex" justifyContent="center" my={2}>
-                                                <Chip
-                                                    label={getMessageDateHeader(msg.created_at)}
-                                                    size="small"
-                                                    sx={{
-                                                        opacity: 0.8,
-                                                        bgcolor: 'action.selected',
-                                                        fontWeight: 500,
-                                                        height: 24,
-                                                        fontSize: '0.75rem'
-                                                    }}
-                                                />
-                                            </Box>
-                                        )}
-                                        <Box
-                                            sx={{
-                                                bgcolor: isOwnMessage ? 'primary.dark' : 'action.hover',
-                                                p: 1.5,
-                                                borderRadius: 1,
-                                                position: 'relative'
-                                            }}
-                                        >
-                                            <Box display="flex" justifyContent="space-between" alignItems="start">
-                                                <Box flex={1}>
-                                                    <Typography variant="caption" color="text.secondary" fontWeight="bold">
-                                                        {msg.username}
-                                                        {msg.is_edited && (
-                                                            <Typography component="span" variant="caption" sx={{ ml: 1, fontStyle: 'italic', opacity: 0.7 }}>
-                                                                (edited)
-                                                            </Typography>
-                                                        )}
-                                                    </Typography>
-
-                                                    {isEditing ? (
-                                                        <Box mt={1}>
-                                                            <TextField
-                                                                fullWidth
-                                                                size="small"
-                                                                value={editContent}
-                                                                onChange={(e) => setEditContent(e.target.value)}
-                                                                autoFocus
-                                                                multiline
-                                                                maxRows={4}
-                                                            />
-                                                            <Box display="flex" gap={1} mt={1}>
-                                                                <Button size="small" variant="contained" onClick={handleSaveEdit}>Save</Button>
-                                                                <Button size="small" variant="outlined" onClick={() => setEditingMessageId(null)}>Cancel</Button>
-                                                            </Box>
-                                                        </Box>
-                                                    ) : (
-                                                        <>
-                                                            <Typography variant="body2" sx={{ mt: 0.5 }}>
-                                                                {msg.message}
-                                                            </Typography>
-                                                            <Box display="flex" justifyContent="flex-end" mt={0.5}>
-                                                                <Typography variant="caption" sx={{ fontSize: '0.7rem', opacity: 0.7, color: 'text.secondary' }}>
-                                                                    {formatMessageTime(msg.created_at)}
-                                                                </Typography>
-                                                            </Box>
-                                                        </>
-                                                    )}
-                                                </Box>
-
-                                                {isOwnMessage && !isEditing && (
-                                                    <Box display="flex" flexDirection="column" alignItems="flex-end" ml={1}>
-                                                        <Box display="flex" gap={0.5}>
-                                                            <IconButton size="small" onClick={() => handleStartEdit(msg.id!, msg.message)} sx={{ opacity: 0.7, p: 0.5 }}>
-                                                                <Edit2 size={12} />
-                                                            </IconButton>
-                                                            <IconButton size="small" onClick={() => handleDeleteClick(msg.id!)} sx={{ opacity: 0.7, '&:hover': { color: 'error.main' }, p: 0.5 }}>
-                                                                <Trash2 size={12} />
-                                                            </IconButton>
-                                                        </Box>
-                                                        {msg.seen_by && msg.seen_by.length > 0 && (
-                                                            <Tooltip title={`Seen by ${msg.seen_by.length} users`}>
-                                                                <Box display="flex" alignItems="center" mt={0.5} sx={{ opacity: 0.6 }}>
-                                                                    <Eye size={12} />
-                                                                    <Typography variant="caption" sx={{ ml: 0.5, fontSize: '0.7rem' }}>{msg.seen_by.length}</Typography>
-                                                                </Box>
-                                                            </Tooltip>
-                                                        )}
-                                                    </Box>
-                                                )}
-                                            </Box>
-                                        </Box>
-                                    </Box>
+                                    <MessageItem
+                                        key={msg.id || Math.random()}
+                                        message={msg}
+                                        user={user}
+                                        isOwnMessage={isOwnMessage}
+                                        showDateHeader={showDateHeader}
+                                        dateHeader={dateHeader}
+                                        isEditing={isEditing}
+                                        onEdit={(id) => setEditingMessageId(id)}
+                                        onDelete={handleDeleteClick}
+                                        onSaveEdit={(id, content) => {
+                                            onEditMessage(id, content);
+                                            setEditingMessageId(null);
+                                        }}
+                                        onCancelEdit={() => setEditingMessageId(null)}
+                                        onAddReaction={onAddReaction}
+                                        onRemoveReaction={onRemoveReaction}
+                                    />
                                 );
                             })}
-
-                            {/* Typing Indicator */}
-                            {typingUsers.size > 0 && (
-                                <Box sx={{ p: 1, fontStyle: 'italic', opacity: 0.7 }}>
-                                    <Typography variant="caption" color="text.secondary">
-                                        {Array.from(typingUsers.values()).join(', ')} {typingUsers.size === 1 ? 'is' : 'are'} typing...
-                                    </Typography>
-                                </Box>
-                            )}
                             <div ref={messagesEndRef} />
                         </Box>
                     </>
@@ -458,6 +373,8 @@ export default function ChatSidebar({
                             <MenuItem onClick={handleMuteClick}><Volume2 size={16} style={{ marginRight: 8 }} /> Mute User</MenuItem>
                             <MenuItem onClick={handleKickClick} sx={{ color: 'error.main' }}><UserX size={16} style={{ marginRight: 8 }} /> Kick User</MenuItem>
                         </Menu>
+
+
                     </>
                 )}
             </Box>
@@ -465,6 +382,11 @@ export default function ChatSidebar({
             {/* Chat Input */}
             {activeTab === 'chat' && (
                 <Box p={2} borderTop={1} borderColor="divider">
+                    {typingUsers.size > 0 && (
+                        <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic', display: 'block', mb: 1 }}>
+                            {Array.from(typingUsers.values()).join(', ')} {typingUsers.size === 1 ? 'is' : 'are'} typing...
+                        </Typography>
+                    )}
                     <form onSubmit={handleSendMessage}>
                         <Box display="flex" gap={1}>
                             <TextField

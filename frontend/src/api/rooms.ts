@@ -75,6 +75,7 @@ export interface ChatMessage {
     seen_by?: string[];
     created_at?: string;
     message_type?: 'chat' | 'join' | 'leave' | 'system';
+    reactions?: { [emoji: string]: string[] };
 }
 
 /**

@@ -127,6 +127,44 @@ export const useWebSocket = (roomId: string) => {
                     sender_id: data.sender_id,
                     message_type: data.message_type
                 }]);
+            } else if (data.type === 'message_reaction_added') {
+                // Add reaction
+                setMessages((prev) =>
+                    prev.map((msg) => {
+                        if (msg.id === data.message_id) {
+                            const currentReactions = msg.reactions || {};
+                            const currentUsers = currentReactions[data.emoji] || [];
+                            if (!currentUsers.includes(data.user_id)) {
+                                return {
+                                    ...msg,
+                                    reactions: {
+                                        ...currentReactions,
+                                        [data.emoji]: [...currentUsers, data.user_id]
+                                    }
+                                };
+                            }
+                        }
+                        return msg;
+                    })
+                );
+            } else if (data.type === 'message_reaction_removed') {
+                // Remove reaction
+                setMessages((prev) =>
+                    prev.map((msg) => {
+                        if (msg.id === data.message_id) {
+                            const currentReactions = msg.reactions || {};
+                            const currentUsers = currentReactions[data.emoji] || [];
+                            return {
+                                ...msg,
+                                reactions: {
+                                    ...currentReactions,
+                                    [data.emoji]: currentUsers.filter(uid => uid !== data.user_id)
+                                }
+                            };
+                        }
+                        return msg;
+                    })
+                );
             }
         };
 
@@ -229,6 +267,26 @@ export const useWebSocket = (roomId: string) => {
         }
     }, []);
 
+    const addReaction = useCallback((messageId: string, emoji: string) => {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({
+                type: 'add_reaction',
+                message_id: messageId,
+                emoji
+            }));
+        }
+    }, []);
+
+    const removeReaction = useCallback((messageId: string, emoji: string) => {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({
+                type: 'remove_reaction',
+                message_id: messageId,
+                emoji
+            }));
+        }
+    }, []);
+
     return {
         messages,
         users,
@@ -243,6 +301,8 @@ export const useWebSocket = (roomId: string) => {
         promoteUser,
         updateRoomSettings,
         muteUser,
+        addReaction,
+        removeReaction,
         isConnected
     };
 };
