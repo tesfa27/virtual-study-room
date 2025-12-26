@@ -51,8 +51,9 @@ class RoomConsumer(AsyncWebsocketConsumer):
         if message_type == 'chat_message':
             # Support 'message' key for backward compatibility
             content = data.get('content') or data.get('message')
+            replied_to_id = data.get('replied_to_id')  # Optional: ID of message being replied to
             if content:
-                await self.handle_chat_message(content)
+                await self.handle_chat_message(content, replied_to_id)
         elif message_type == 'edit_message':
             await self.handle_edit_message(data.get('message_id'), data.get('content'))
         elif message_type == 'delete_message':
@@ -61,6 +62,13 @@ class RoomConsumer(AsyncWebsocketConsumer):
             await self.handle_typing(data.get('is_typing', False))
         elif message_type == 'mark_seen':
             await self.handle_mark_seen(data.get('message_id'))
+        
+        # Reaction Handlers
+        elif message_type == 'add_reaction':
+            await self.handle_add_reaction(data.get('message_id'), data.get('emoji'))
+        elif message_type == 'remove_reaction':
+            await self.handle_remove_reaction(data.get('message_id'), data.get('emoji'))
+
         # Group Management
         elif message_type == 'kick_user':
             await self.handle_kick_user(data.get('user_id'))
@@ -71,7 +79,7 @@ class RoomConsumer(AsyncWebsocketConsumer):
         elif message_type == 'mute_user':
             await self.handle_mute_user(data.get('user_id'), data.get('duration'))
 
-    async def handle_chat_message(self, content):
+    async def handle_chat_message(self, content, replied_to_id=None):
         # Check if user is muted
         is_muted = await self.is_user_muted()
         if is_muted:
@@ -81,21 +89,27 @@ class RoomConsumer(AsyncWebsocketConsumer):
         # 1. Encrypt
         encrypted_content = EncryptionService.encrypt(content)
         
-        # 2. Save
-        message = await self.save_message(self.room_id, self.user, encrypted_content)
+        # 2. Save (with optional reply reference)
+        message = await self.save_message(self.room_id, self.user, encrypted_content, replied_to_id)
 
-        # 3. Broadcast
+        # 3. Get replied_to_message info if exists
+        replied_to_message = None
+        if replied_to_id:
+            replied_to_message = await self.get_replied_to_info(replied_to_id)
+
+        # 4. Broadcast
         payload = {
             'type': 'chat_message',
             'id': str(message.id),
             'content': content,
             'username': self.user.username,
             'sender_id': str(self.user.id),
-            'timestamp': str(message.created_at)
+            'timestamp': str(message.created_at),
+            'replied_to_message': replied_to_message
         }
         await self.channel_layer.group_send(self.room_group_name, payload)
         
-        # 4. Notify Global User Groups (Simulated by iterating or just relying on room broadcast currently)
+        # 5. Notify Global User Groups (Simulated by iterating or just relying on room broadcast currently)
         # Requirement: "broadcast to global_user_group for each member"
         # Since everyone is in the room group, the room broadcast covers the immediate UI update.
         # But if we need to update "sidebar list" for users NOT in the room (e.g. unread count), we'd push to user_group_name.
@@ -181,6 +195,39 @@ class RoomConsumer(AsyncWebsocketConsumer):
                 'username': self.user.username
             }
         )
+    
+    # Reaction Handlers Implementation
+    async def handle_add_reaction(self, message_id, emoji):
+        if not message_id or not emoji:
+            return
+
+        success = await self.add_reaction_to_db(message_id, self.user, emoji)
+        if success:
+            await self.channel_layer.group_send(
+                self.room_group_name,
+                {
+                    'type': 'message_reaction_added',
+                    'message_id': message_id,
+                    'user_id': str(self.user.id),
+                    'emoji': emoji
+                }
+            )
+
+    async def handle_remove_reaction(self, message_id, emoji):
+        if not message_id or not emoji:
+            return
+
+        success = await self.remove_reaction_from_db(message_id, self.user, emoji)
+        if success:
+            await self.channel_layer.group_send(
+                self.room_group_name,
+                {
+                    'type': 'message_reaction_removed',
+                    'message_id': message_id,
+                    'user_id': str(self.user.id),
+                    'emoji': emoji
+                }
+            )
 
     # Group Management Handlers
     async def handle_kick_user(self, user_id):
@@ -331,7 +378,8 @@ class RoomConsumer(AsyncWebsocketConsumer):
             'id': event.get('id'),
             'sender_id': event.get('sender_id'),
             'message_type': event.get('message_type', 'chat'),
-            'created_at': event.get('timestamp') or event.get('created_at')
+            'created_at': event.get('timestamp') or event.get('created_at'),
+            'replied_to_message': event.get('replied_to_message')
         }))
 
     async def message_update(self, event):
@@ -371,6 +419,22 @@ class RoomConsumer(AsyncWebsocketConsumer):
             'message_id': event['message_id'],
             'user_id': event['user_id'],
             'username': event['username']
+        }))
+
+    async def message_reaction_added(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'message_reaction_added',
+            'message_id': event['message_id'],
+            'user_id': event['user_id'],
+            'emoji': event['emoji']
+        }))
+
+    async def message_reaction_removed(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'message_reaction_removed',
+            'message_id': event['message_id'],
+            'user_id': event['user_id'],
+            'emoji': event['emoji']
         }))
 
     # Group Management Broadcast Handlers
@@ -430,8 +494,40 @@ class RoomConsumer(AsyncWebsocketConsumer):
 
     # Database Helpers
     @database_sync_to_async
-    def save_message(self, room_id, user, encrypted_content):
-        return Message.objects.create(room_id=room_id, sender=user, content=encrypted_content)
+    def save_message(self, room_id, user, encrypted_content, replied_to_id=None):
+        return Message.objects.create(
+            room_id=room_id, 
+            sender=user, 
+            content=encrypted_content,
+            replied_to_id=replied_to_id if replied_to_id else None
+        )
+
+    @database_sync_to_async
+    def get_replied_to_info(self, message_id):
+        """Get basic info about the message being replied to"""
+        try:
+            message = Message.objects.get(id=message_id)
+            decrypted_content = EncryptionService.decrypt(message.content)
+            return {
+                'id': str(message.id),
+                'username': message.sender.username if message.sender else 'System',
+                'message': decrypted_content,
+                'created_at': str(message.created_at)
+            }
+        except Message.DoesNotExist:
+            return None
+        except Exception:
+            # If decryption fails, return encrypted placeholder
+            try:
+                message = Message.objects.get(id=message_id)
+                return {
+                    'id': str(message.id),
+                    'username': message.sender.username if message.sender else 'System',
+                    'message': '[Encrypted]',
+                    'created_at': str(message.created_at)
+                }
+            except:
+                return None
 
     @database_sync_to_async
     def get_message(self, message_id):
@@ -462,6 +558,41 @@ class RoomConsumer(AsyncWebsocketConsumer):
                 message_id=message_id,
                 user=user
             )
+
+    @database_sync_to_async
+    def add_reaction_to_db(self, message_id, user, emoji):
+        from .models import Reaction
+        try:
+            # Basic validation
+            if not message_id or not emoji:
+                return False
+            
+            # Use get_or_create to avoid duplicates (though model has unique constaint)
+            Reaction.objects.get_or_create(
+                message_id=message_id,
+                user=user,
+                emoji=emoji
+            )
+            return True
+        except Exception:
+            # Catch potential integrity errors or invalid message_id
+            return False
+
+    @database_sync_to_async
+    def remove_reaction_from_db(self, message_id, user, emoji):
+        from .models import Reaction
+        try:
+            reaction = Reaction.objects.filter(
+                message_id=message_id,
+                user=user,
+                emoji=emoji
+            ).first()
+            if reaction:
+                reaction.delete()
+                return True
+            return False
+        except Exception:
+            return False
 
     @database_sync_to_async
     def get_unread_count(self, user, room_id):

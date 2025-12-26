@@ -17,6 +17,11 @@ export const useWebSocket = (roomId: string) => {
     const [isConnected, setIsConnected] = useState(false);
     const wsRef = useRef<WebSocket | null>(null);
 
+    const [page, setPage] = useState(1);
+    const [hasMore, setHasMore] = useState(true);
+    const [isLoadingMore, setIsLoadingMore] = useState(false);
+    const [isLoading, setIsLoading] = useState(true); // Initial load state
+
     useEffect(() => {
         if (!roomId) return;
 
@@ -28,11 +33,17 @@ export const useWebSocket = (roomId: string) => {
 
         // Fetch message history from REST API
         const fetchMessageHistory = async () => {
+            setIsLoading(true);
             try {
-                const history = await getRoomMessages(roomId);
-                setMessages(history);
+                const data = await getRoomMessages(roomId, 1);
+                // Backend returns newest first. We reverse to show oldest -> newest.
+                setMessages(data.results.reverse());
+                setHasMore(!!data.next);
+                setPage(1);
             } catch (error) {
                 console.error('Failed to load message history:', error);
+            } finally {
+                setIsLoading(false);
             }
         };
 
@@ -125,8 +136,48 @@ export const useWebSocket = (roomId: string) => {
                     is_edited: data.is_edited || false,
                     seen_by: [],
                     sender_id: data.sender_id,
-                    message_type: data.message_type
+                    message_type: data.message_type,
+                    created_at: data.created_at,
+                    replied_to_message: data.replied_to_message || null
                 }]);
+            } else if (data.type === 'message_reaction_added') {
+                // Add reaction
+                setMessages((prev) =>
+                    prev.map((msg) => {
+                        if (msg.id === data.message_id) {
+                            const currentReactions = msg.reactions || {};
+                            const currentUsers = currentReactions[data.emoji] || [];
+                            if (!currentUsers.includes(data.user_id)) {
+                                return {
+                                    ...msg,
+                                    reactions: {
+                                        ...currentReactions,
+                                        [data.emoji]: [...currentUsers, data.user_id]
+                                    }
+                                };
+                            }
+                        }
+                        return msg;
+                    })
+                );
+            } else if (data.type === 'message_reaction_removed') {
+                // Remove reaction
+                setMessages((prev) =>
+                    prev.map((msg) => {
+                        if (msg.id === data.message_id) {
+                            const currentReactions = msg.reactions || {};
+                            const currentUsers = currentReactions[data.emoji] || [];
+                            return {
+                                ...msg,
+                                reactions: {
+                                    ...currentReactions,
+                                    [data.emoji]: currentUsers.filter(uid => uid !== data.user_id)
+                                }
+                            };
+                        }
+                        return msg;
+                    })
+                );
             }
         };
 
@@ -145,9 +196,37 @@ export const useWebSocket = (roomId: string) => {
         };
     }, [roomId]);
 
-    const sendMessage = useCallback((message: string) => {
+    const loadMoreMessages = useCallback(async () => {
+        if (!hasMore || isLoadingMore) return;
+
+        setIsLoadingMore(true);
+        try {
+            const nextPage = page + 1;
+            const data = await getRoomMessages(roomId, nextPage);
+
+            if (data.results.length === 0) {
+                setHasMore(false);
+            } else {
+                // Prepend older messages
+                const olderMessages = [...data.results].reverse();
+                setMessages(prev => [...olderMessages, ...prev]);
+                setPage(nextPage);
+                setHasMore(!!data.next);
+            }
+        } catch (error) {
+            console.error('Failed to load older messages:', error);
+        } finally {
+            setIsLoadingMore(false);
+        }
+    }, [roomId, page, hasMore, isLoadingMore]);
+
+    const sendMessage = useCallback((message: string, repliedToId?: string) => {
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify({ message }));
+            const payload: any = { message };
+            if (repliedToId) {
+                payload.replied_to_id = repliedToId;
+            }
+            wsRef.current.send(JSON.stringify(payload));
         } else {
             console.warn("WebSocket is not connected");
         }
@@ -229,6 +308,26 @@ export const useWebSocket = (roomId: string) => {
         }
     }, []);
 
+    const addReaction = useCallback((messageId: string, emoji: string) => {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({
+                type: 'add_reaction',
+                message_id: messageId,
+                emoji
+            }));
+        }
+    }, []);
+
+    const removeReaction = useCallback((messageId: string, emoji: string) => {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({
+                type: 'remove_reaction',
+                message_id: messageId,
+                emoji
+            }));
+        }
+    }, []);
+
     return {
         messages,
         users,
@@ -243,6 +342,13 @@ export const useWebSocket = (roomId: string) => {
         promoteUser,
         updateRoomSettings,
         muteUser,
-        isConnected
+        addReaction,
+        removeReaction,
+        isConnected,
+        loadMoreMessages,
+        hasMore,
+        isLoadingMore,
+        isLoading
     };
 };
+
