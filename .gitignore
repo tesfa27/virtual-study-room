@@ -28,3 +28,4 @@ postgres_data/
 *.log
 *.sqlite3
 media/*
+backend/media/

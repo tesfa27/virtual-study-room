@@ -48,7 +48,7 @@ export default function RoomPage() {
 
     // 4. UI State
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-    const [activeTab, setActiveTab] = useState<'chat' | 'users'>('chat');
+    const [activeTab, setActiveTab] = useState<'chat' | 'users' | 'files'>('chat');
 
     const { data: members = [] } = useQuery({
         queryKey: ['room', id, 'members'],
@@ -86,11 +86,13 @@ export default function RoomPage() {
 
     const drawerContent = (
         <ChatSidebar
+            roomId={id} // Needed for file upload
             activeTab={activeTab}
             setActiveTab={setActiveTab}
             messages={ws.messages}
             users={ws.users}
             allMembers={members}
+            files={ws.files}
             typingUsers={ws.typingUsers}
             isConnected={ws.isConnected}
             user={user}

@@ -23,3 +23,4 @@ local_settings.py  # If you use a separate file for local settings overrides
 # Migrations files (only ignore *new* ones that haven't been committed yet)
 # It's generally safer to commit migrations, but sometimes generated artifacts are ignored:
 # */migrations/0*.py
+media/

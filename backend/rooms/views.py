@@ -14,6 +14,8 @@ from asgiref.sync import async_to_sync
 from utils.encryption_service import EncryptionService
 import os
 import mimetypes
+import json
+from django.core.serializers.json import DjangoJSONEncoder
 
 class RoomPomodoroView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -345,13 +347,45 @@ class RoomFileListCreateView(APIView):
         
         serializer = RoomFileSerializer(room_file, context={'request': request})
         
-        # Broadcast file upload to room members
+        ws_data = json.loads(json.dumps(serializer.data, cls=DjangoJSONEncoder))
+        
+        # Broadcast file upload to room members (for Files tab)
         channel_layer = get_channel_layer()
         async_to_sync(channel_layer.group_send)(
             f"room_{room_id}",
             {
                 "type": "file_uploaded",
-                "data": serializer.data
+                "data": ws_data
+            }
+        )
+
+        # Create and broadcast chat message (for Chat tab)
+        content_text = "Shared a file"
+        encrypted_content = EncryptionService.encrypt(content_text)
+        
+        message = Message.objects.create(
+             room=room,
+             sender=request.user,
+             content=encrypted_content,
+             file=room_file,
+             message_type='file'
+        )
+        
+        # We need full message serialization for consistency
+        message_serializer = MessageSerializer(message, context={'request': request})
+        message_ws_data = json.loads(json.dumps(message_serializer.data, cls=DjangoJSONEncoder))
+
+        async_to_sync(channel_layer.group_send)(
+            f"room_{room_id}",
+            {
+                "type": "chat_message",
+                "content": content_text, # Broadcast plaintext for immediate display
+                "username": request.user.username,
+                "id": str(message.id),
+                "sender_id": str(request.user.id),
+                "message_type": "file",
+                "created_at": message.created_at.isoformat(),
+                "file": ws_data # Use the already serialized file data
             }
         )
         

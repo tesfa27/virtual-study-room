@@ -48,8 +48,12 @@ class Message(models.Model):
     # Reply feature: reference to the message being replied to
     replied_to = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='replies')
     
+    # Optional file attachment
+    file = models.ForeignKey('RoomFile', on_delete=models.SET_NULL, null=True, blank=True, related_name='messages')
+    
     MESSAGE_TYPES = [
         ('chat', 'Chat'),
+        ('file', 'File'),
         ('join', 'Join'),
         ('leave', 'Leave'),
         ('system', 'System'),

@@ -45,14 +45,47 @@ class ReactionSerializer(serializers.ModelSerializer):
         fields = ['id', 'emoji', 'user', 'username', 'created_at']
         read_only_fields = ['id', 'user', 'username', 'created_at']
 
+
+class RoomFileSerializer(serializers.ModelSerializer):
+    uploaded_by_username = serializers.ReadOnlyField(source='uploaded_by.username')
+    file_url = serializers.SerializerMethodField()
+    file_size_display = serializers.ReadOnlyField()
+    is_image = serializers.ReadOnlyField()
+    file_extension = serializers.ReadOnlyField()
+
+    class Meta:
+        model = RoomFile
+        fields = [
+            'id', 'room', 'uploaded_by', 'uploaded_by_username',
+            'file', 'file_url', 'original_filename', 'file_size', 'file_size_display',
+            'file_type', 'file_extension', 'is_image',
+            'description', 'download_count', 'created_at'
+        ]
+        read_only_fields = [
+            'id', 'room', 'uploaded_by', 'uploaded_by_username',
+            'file_url', 'file_size', 'file_size_display', 'file_type',
+            'file_extension', 'is_image', 'download_count', 'created_at'
+        ]
+
+    def get_file_url(self, obj):
+        request = self.context.get('request')
+        if obj.file and hasattr(obj.file, 'url'):
+            if request:
+                return request.build_absolute_uri(obj.file.url)
+            return obj.file.url
+        return None
+
+
 class MessageSerializer(serializers.ModelSerializer):
     username = serializers.SerializerMethodField()
     sender_id = serializers.SerializerMethodField()
     replied_to_message = serializers.SerializerMethodField()
     
+    file = RoomFileSerializer(read_only=True)
+    
     class Meta:
         model = Message
-        fields = ['id', 'username', 'sender_id', 'is_edited', 'created_at', 'message_type', 'replied_to', 'replied_to_message']
+        fields = ['id', 'username', 'sender_id', 'is_edited', 'created_at', 'message_type', 'replied_to', 'replied_to_message', 'file']
         read_only_fields = ['id', 'username', 'sender_id', 'is_edited', 'created_at', 'message_type', 'replied_to_message']
     
     def get_username(self, obj):

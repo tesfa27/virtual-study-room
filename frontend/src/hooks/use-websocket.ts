@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { getRoomMessages, type ChatMessage, type PomodoroSession, getPomodoroSession } from '../api/rooms';
+import { getRoomMessages, type ChatMessage, type PomodoroSession, getPomodoroSession, type RoomFile, getRoomFiles } from '../api/rooms';
 import { WS_URL } from '../api/config';
 import { getCookie } from '../api/client';
 
@@ -22,9 +22,11 @@ export const useWebSocket = (roomId: string) => {
     const [isLoadingMore, setIsLoadingMore] = useState(false);
     const [isLoading, setIsLoading] = useState(true); // Initial load state
     const [pomodoro, setPomodoro] = useState<PomodoroSession | null>(null);
+    const [files, setFiles] = useState<RoomFile[]>([]);
 
     useEffect(() => {
         if (!roomId) return;
+        // console.log(`Connecting to WebSocket for room ${roomId}`);
 
         const token = getCookie('access_token');
         const wsUrl = `${WS_URL}/ws/room/${roomId}/?token=${token}`;
@@ -47,6 +49,12 @@ export const useWebSocket = (roomId: string) => {
                 setPage(1);
 
                 if (pomodoroData) setPomodoro(pomodoroData);
+
+                // Fetch files separately to not block main load if it fails
+                getRoomFiles(roomId)
+                    .then(fileData => setFiles(fileData))
+                    .catch(err => console.error("Failed to load files:", err));
+
             } catch (error) {
                 console.error('Failed to load room data:', error);
             } finally {
@@ -145,7 +153,8 @@ export const useWebSocket = (roomId: string) => {
                     sender_id: data.sender_id,
                     message_type: data.message_type,
                     created_at: data.created_at,
-                    replied_to_message: data.replied_to_message || null
+                    replied_to_message: data.replied_to_message || null,
+                    file: data.file
                 }]);
             } else if (data.type === 'message_reaction_added') {
                 // Add reaction
@@ -187,6 +196,10 @@ export const useWebSocket = (roomId: string) => {
                 );
             } else if (data.type === 'pomodoro_update') {
                 setPomodoro(data.data);
+            } else if (data.type === 'file_uploaded') {
+                setFiles(prev => [data.data, ...prev]);
+            } else if (data.type === 'file_deleted') {
+                setFiles(prev => prev.filter(f => f.id !== data.data.id));
             }
         };
 
@@ -358,7 +371,8 @@ export const useWebSocket = (roomId: string) => {
         hasMore,
         isLoadingMore,
         isLoading,
-        pomodoro
+        pomodoro,
+        files
     };
 };
 

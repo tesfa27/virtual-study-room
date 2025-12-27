@@ -371,16 +371,23 @@ class RoomConsumer(AsyncWebsocketConsumer):
 
     # Handlers for Group Messages
     async def chat_message(self, event):
-        await self.send(text_data=json.dumps({
+        """Broadcast chat message to room group"""
+        response = {
             'type': 'chat_message',
-            'message': event['content'], # Mapping 'content' to 'message' for frontend compat
+            'message': event.get('content') or event.get('message'),
             'username': event['username'],
             'id': event.get('id'),
             'sender_id': event.get('sender_id'),
             'message_type': event.get('message_type', 'chat'),
             'created_at': event.get('timestamp') or event.get('created_at'),
             'replied_to_message': event.get('replied_to_message')
-        }))
+        }
+        
+        # Include file data if present (for file uploads)
+        if 'file' in event:
+            response['file'] = event['file']
+            
+        await self.send(text_data=json.dumps(response))
 
     async def message_update(self, event):
         await self.send(text_data=json.dumps({
