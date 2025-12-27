@@ -137,3 +137,26 @@ export interface RoomMember {
 export async function getRoomMembers(id: string): Promise<RoomMember[]> {
     return apiClient<RoomMember[]>(`/rooms/${id}/members/`);
 }
+
+export interface PomodoroSession {
+    id: string;
+    phase: 'work' | 'short_break' | 'long_break';
+    is_running: boolean;
+    start_time: string | null;
+    remaining: number; // calculated remaining seconds
+    work_duration: number;
+    short_break_duration: number;
+    long_break_duration: number;
+    current_time: string; // server time
+}
+
+export async function getPomodoroSession(id: string): Promise<PomodoroSession> {
+    return apiClient<PomodoroSession>(`/rooms/${id}/pomodoro/`);
+}
+
+export async function updatePomodoroSession(id: string, action: string, data?: any): Promise<PomodoroSession> {
+    return apiClient<PomodoroSession>(`/rooms/${id}/pomodoro/`, {
+        method: 'POST',
+        body: JSON.stringify({ action, ...data })
+    });
+}

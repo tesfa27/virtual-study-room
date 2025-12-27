@@ -3,11 +3,99 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
 from rest_framework.pagination import PageNumberPagination
-from .models import Room, RoomMembership, Message
-from .serializers import RoomSerializer, MessageSerializer, RoomMembershipSerializer
+from .models import Room, RoomMembership, Message, PomodoroSession
+from .serializers import RoomSerializer, MessageSerializer, RoomMembershipSerializer, PomodoroSerializer
+from django.utils import timezone
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from utils.encryption_service import EncryptionService
+
+class RoomPomodoroView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_object(self, room_id):
+        room = get_object_or_404(Room, id=room_id)
+        session, created = PomodoroSession.objects.get_or_create(room=room)
+        return session
+
+    def check_write_permission(self, room_id, user):
+        # Check if user is owner of the room
+        room = get_object_or_404(Room, id=room_id)
+        if room.owner == user:
+            return
+
+        # Check if user is admin or moderator
+        if not RoomMembership.objects.filter(
+            room_id=room_id, 
+            user=user, 
+            role__in=['admin', 'moderator']
+        ).exists():
+            raise exceptions.PermissionDenied("Only admins can control the timer.")
+
+    def get(self, request, room_id):
+        session = self.get_object(room_id)
+        serializer = PomodoroSerializer(session)
+        return Response(serializer.data)
+
+    def post(self, request, room_id):
+        action = request.data.get('action')
+        session = self.get_object(room_id)
+        
+        # Verify user is a room member
+        self.check_write_permission(room_id, request.user)
+
+        if action == 'start':
+            if not session.is_running:
+                session.start_time = timezone.now()
+                session.is_running = True
+                session.save()
+        elif action == 'pause':
+            if session.is_running:
+                # Calculate remaining and save
+                session.remaining_seconds = session.get_current_remaining()
+                session.is_running = False
+                session.start_time = None
+                session.save()
+        elif action == 'reset':
+             # Stop and reset to default for current phase
+             session.is_running = False
+             session.start_time = None
+             if session.phase == 'work':
+                 session.remaining_seconds = session.work_duration
+             elif session.phase == 'short_break':
+                 session.remaining_seconds = session.short_break_duration
+             elif session.phase == 'long_break':
+                 session.remaining_seconds = session.long_break_duration
+             session.save()
+        elif action == 'set_phase':
+             phase = request.data.get('phase')
+             if phase in dict(PomodoroSession.PHASE_CHOICES):
+                 session.phase = phase
+                 session.is_running = False
+                 session.start_time = None
+                 # Set duration based on phase
+                 if phase == 'work':
+                     session.remaining_seconds = session.work_duration
+                 elif phase == 'short_break':
+                     session.remaining_seconds = session.short_break_duration
+                 elif phase == 'long_break':
+                     session.remaining_seconds = session.long_break_duration
+                 session.save()
+        else:
+            return Response({'error': 'Invalid action'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Broadcast update
+        serializer = PomodoroSerializer(session)
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(
+            f"room_{room_id}",
+            {
+                "type": "pomodoro_update",
+                "data": serializer.data
+            }
+        )
+        
+        return Response(serializer.data)
 
 class RoomPagination(PageNumberPagination):
     page_size = 10

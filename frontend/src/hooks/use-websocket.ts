@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { getRoomMessages, type ChatMessage } from '../api/rooms';
+import { getRoomMessages, type ChatMessage, type PomodoroSession, getPomodoroSession } from '../api/rooms';
 import { WS_URL } from '../api/config';
 import { getCookie } from '../api/client';
 
@@ -21,6 +21,7 @@ export const useWebSocket = (roomId: string) => {
     const [hasMore, setHasMore] = useState(true);
     const [isLoadingMore, setIsLoadingMore] = useState(false);
     const [isLoading, setIsLoading] = useState(true); // Initial load state
+    const [pomodoro, setPomodoro] = useState<PomodoroSession | null>(null);
 
     useEffect(() => {
         if (!roomId) return;
@@ -35,13 +36,19 @@ export const useWebSocket = (roomId: string) => {
         const fetchMessageHistory = async () => {
             setIsLoading(true);
             try {
-                const data = await getRoomMessages(roomId, 1);
+                const [msgData, pomodoroData] = await Promise.all([
+                    getRoomMessages(roomId, 1),
+                    getPomodoroSession(roomId).catch(() => null)
+                ]);
+
                 // Backend returns newest first. We reverse to show oldest -> newest.
-                setMessages(data.results.reverse());
-                setHasMore(!!data.next);
+                setMessages(msgData.results.reverse());
+                setHasMore(!!msgData.next);
                 setPage(1);
+
+                if (pomodoroData) setPomodoro(pomodoroData);
             } catch (error) {
-                console.error('Failed to load message history:', error);
+                console.error('Failed to load room data:', error);
             } finally {
                 setIsLoading(false);
             }
@@ -178,6 +185,8 @@ export const useWebSocket = (roomId: string) => {
                         return msg;
                     })
                 );
+            } else if (data.type === 'pomodoro_update') {
+                setPomodoro(data.data);
             }
         };
 
@@ -348,7 +357,8 @@ export const useWebSocket = (roomId: string) => {
         loadMoreMessages,
         hasMore,
         isLoadingMore,
-        isLoading
+        isLoading,
+        pomodoro
     };
 };
 

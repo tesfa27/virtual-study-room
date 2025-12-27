@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { getRoomMembers } from "../api/rooms";
+import PomodoroTimer from "../components/room/PomodoroTimer";
 import {
     Box,
     Drawer,
@@ -22,6 +23,7 @@ import RoomHeader from "../components/room/RoomHeader";
 import RoomStage from "../components/room/RoomStage";
 import ChatSidebar from "../components/room/ChatSidebar";
 import JoinRoomDialog from "../components/room/JoinRoomDialog";
+import OnlineUsersGrid from "../components/room/OnlineUsersGrid";
 
 export default function RoomPage() {
     const { id = "" } = useParams<{ id: string }>();
@@ -75,6 +77,13 @@ export default function RoomPage() {
         );
     }
 
+
+    // Calculate if current user can control the timer (owner, admin, or moderator)
+    const currentMember = members.find(m => m.user === user?.id);
+    const isOwner = user?.id === room.owner;
+    const isAdmin = currentMember?.role === 'admin' || currentMember?.role === 'moderator';
+    const canControlTimer = isOwner || isAdmin;
+
     const drawerContent = (
         <ChatSidebar
             activeTab={activeTab}
@@ -117,8 +126,41 @@ export default function RoomPage() {
 
             {/* Main Stage (Content) - Gated by Join Status */}
             {hasJoined && (
-                <Box component="main" sx={{ flexGrow: 1, p: 3, mt: 8, height: '100%', overflow: 'auto', bgcolor: 'background.default' }}>
-                    <RoomStage room={room} />
+                <Box
+                    component="main"
+                    sx={{
+                        flexGrow: 1,
+                        p: 3,
+                        mt: 8,
+                        height: '100%',
+                        overflow: 'auto',
+                        bgcolor: 'background.default',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center'
+                    }}
+                >
+                    {/* Pomodoro Timer - Centered and Prominent */}
+                    <Box sx={{ width: '100%', maxWidth: 450, mb: 4 }}>
+                        <PomodoroTimer
+                            roomId={id}
+                            session={ws.pomodoro}
+                            canControl={canControlTimer}
+                        />
+                    </Box>
+
+                    {/* Online Users Grid - StudyStream style */}
+                    <Box sx={{ width: '100%', maxWidth: 800, mb: 4 }}>
+                        <OnlineUsersGrid
+                            users={ws.users}
+                            currentUserId={user?.id}
+                        />
+                    </Box>
+
+                    {/* Room Info */}
+                    <Box sx={{ width: '100%', maxWidth: 600 }}>
+                        <RoomStage room={room} />
+                    </Box>
                 </Box>
             )}
 
@@ -131,10 +173,10 @@ export default function RoomPage() {
                         anchor="right"
                         open={isSidebarOpen}
                         sx={{
-                            width: 320,
+                            width: 400,
                             flexShrink: 0,
                             '& .MuiDrawer-paper': {
-                                width: 320,
+                                width: 400,
                                 boxSizing: 'border-box',
                                 mt: 8,
                                 height: 'calc(100% - 64px)'
@@ -153,7 +195,7 @@ export default function RoomPage() {
                         onClose={() => setIsSidebarOpen(false)}
                         sx={{
                             display: { xs: 'block', sm: 'none' },
-                            '& .MuiDrawer-paper': { boxSizing: 'border-box', width: 320 },
+                            '& .MuiDrawer-paper': { boxSizing: 'border-box', width: 400 },
                         }}
                     >
                         {drawerContent}

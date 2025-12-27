@@ -30,7 +30,12 @@ import {
     Volume2,
     Edit2,
     Trash2,
-    Eye
+    Eye,
+    UserPlus,
+    ArrowUpCircle,
+    MicOff,
+    Smile,
+    X
 } from "lucide-react";
 import type { ChatMessage, RoomMember } from "../../api/rooms";
 import type { OnlineUser } from "../../hooks/use-websocket";
@@ -292,7 +297,7 @@ export default function ChatSidebar({
 
 
     return (
-        <Box sx={{ width: 320, display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <Box sx={{ width: 400, display: 'flex', flexDirection: 'column', height: '100%' }}>
             {/* Tabs */}
             <Box p={2} borderBottom={1} borderColor="divider">
                 <Box display="flex" justifyContent="space-around">

@@ -83,10 +83,40 @@ class Reaction(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = ('message', 'user', 'emoji')
+        unique_together = ('user', 'message', 'emoji')
         indexes = [
             models.Index(fields=['message', 'emoji']),
         ]
 
     def __str__(self):
         return f"{self.user.username} reacted {self.emoji} to message {self.message.id}"
+
+class PomodoroSession(models.Model):
+    PHASE_CHOICES = (
+        ('work', 'Focus'),
+        ('short_break', 'Short Break'),
+        ('long_break', 'Long Break'),
+    )
+
+    room = models.OneToOneField(Room, on_delete=models.CASCADE, related_name='pomodoro')
+    phase = models.CharField(max_length=20, choices=PHASE_CHOICES, default='work')
+    is_running = models.BooleanField(default=False)
+    start_time = models.DateTimeField(null=True, blank=True)
+    remaining_seconds = models.IntegerField(default=25*60) 
+    
+    # Settings
+    work_duration = models.IntegerField(default=25*60)
+    short_break_duration = models.IntegerField(default=5*60)
+    long_break_duration = models.IntegerField(default=15*60)
+
+    def get_current_remaining(self):
+        if not self.is_running or not self.start_time:
+            return self.remaining_seconds
+        
+        from django.utils import timezone
+        now = timezone.now()
+        elapsed = (now - self.start_time).total_seconds()
+        return max(0, self.remaining_seconds - int(elapsed))
+
+    def __str__(self):
+        return f"Pomodoro for {self.room.name}"
