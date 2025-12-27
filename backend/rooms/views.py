@@ -1,14 +1,19 @@
 from rest_framework import generics, permissions, filters, exceptions, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework.parsers import MultiPartParser, FormParser
 from django.shortcuts import get_object_or_404
+from django.http import FileResponse
+from django.conf import settings
 from rest_framework.pagination import PageNumberPagination
-from .models import Room, RoomMembership, Message, PomodoroSession
-from .serializers import RoomSerializer, MessageSerializer, RoomMembershipSerializer, PomodoroSerializer
+from .models import Room, RoomMembership, Message, PomodoroSession, RoomFile
+from .serializers import RoomSerializer, MessageSerializer, RoomMembershipSerializer, PomodoroSerializer, RoomFileSerializer
 from django.utils import timezone
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from utils.encryption_service import EncryptionService
+import os
+import mimetypes
 
 class RoomPomodoroView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -274,3 +279,151 @@ class RoomMembersView(generics.ListAPIView):
     def get_queryset(self):
         room_id = self.kwargs['room_id']
         return RoomMembership.objects.filter(room_id=room_id).select_related('user')
+
+
+class RoomFileListCreateView(APIView):
+    """List and upload files for a room"""
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def get(self, request, room_id):
+        """List all files in a room"""
+        room = get_object_or_404(Room, id=room_id)
+        
+        # Check if user is a member
+        if not RoomMembership.objects.filter(room=room, user=request.user).exists() and room.owner != request.user:
+            raise exceptions.PermissionDenied("You must be a room member to view files.")
+        
+        files = RoomFile.objects.filter(room=room)
+        serializer = RoomFileSerializer(files, many=True, context={'request': request})
+        return Response(serializer.data)
+
+    def post(self, request, room_id):
+        """Upload a file to a room"""
+        room = get_object_or_404(Room, id=room_id)
+        
+        # Check if user is a member
+        if not RoomMembership.objects.filter(room=room, user=request.user).exists() and room.owner != request.user:
+            raise exceptions.PermissionDenied("You must be a room member to upload files.")
+        
+        file = request.FILES.get('file')
+        if not file:
+            return Response({'error': 'No file provided'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Validate file size
+        max_size = getattr(settings, 'MAX_FILE_SIZE_MB', 10) * 1024 * 1024
+        if file.size > max_size:
+            return Response(
+                {'error': f'File too large. Maximum size is {settings.MAX_FILE_SIZE_MB}MB'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Validate file extension
+        ext = os.path.splitext(file.name)[1].lower()
+        allowed_extensions = getattr(settings, 'ALLOWED_FILE_EXTENSIONS', [])
+        if allowed_extensions and ext not in allowed_extensions:
+            return Response(
+                {'error': f'File type not allowed. Allowed types: {allowed_extensions}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get MIME type
+        mime_type, _ = mimetypes.guess_type(file.name)
+        if not mime_type:
+            mime_type = 'application/octet-stream'
+        
+        # Create file record
+        room_file = RoomFile.objects.create(
+            room=room,
+            uploaded_by=request.user,
+            file=file,
+            original_filename=file.name,
+            file_size=file.size,
+            file_type=mime_type,
+            description=request.data.get('description', '')
+        )
+        
+        serializer = RoomFileSerializer(room_file, context={'request': request})
+        
+        # Broadcast file upload to room members
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(
+            f"room_{room_id}",
+            {
+                "type": "file_uploaded",
+                "data": serializer.data
+            }
+        )
+        
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class RoomFileDetailView(APIView):
+    """Download or delete a specific file"""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_file(self, room_id, file_id):
+        room = get_object_or_404(Room, id=room_id)
+        return get_object_or_404(RoomFile, id=file_id, room=room)
+
+    def check_member_permission(self, room, user):
+        if not RoomMembership.objects.filter(room=room, user=user).exists() and room.owner != user:
+            raise exceptions.PermissionDenied("You must be a room member to access files.")
+
+    def check_delete_permission(self, room, user, file):
+        """Only file uploader, room owner, or admins can delete"""
+        if room.owner == user:
+            return
+        if file.uploaded_by == user:
+            return
+        if RoomMembership.objects.filter(room=room, user=user, role__in=['admin', 'moderator']).exists():
+            return
+        raise exceptions.PermissionDenied("You don't have permission to delete this file.")
+
+    def get(self, request, room_id, file_id):
+        """Download a file"""
+        room_file = self.get_file(room_id, file_id)
+        self.check_member_permission(room_file.room, request.user)
+        
+        # Increment download count
+        room_file.download_count += 1
+        room_file.save(update_fields=['download_count'])
+        
+        # Stream file response
+        response = FileResponse(
+            room_file.file.open('rb'),
+            content_type=room_file.file_type
+        )
+        response['Content-Disposition'] = f'attachment; filename="{room_file.original_filename}"'
+        return response
+
+    def delete(self, request, room_id, file_id):
+        """Delete a file"""
+        room_file = self.get_file(room_id, file_id)
+        self.check_member_permission(room_file.room, request.user)
+        self.check_delete_permission(room_file.room, request.user, room_file)
+        
+        file_data = {
+            'id': str(room_file.id),
+            'original_filename': room_file.original_filename,
+            'deleted_by': request.user.username
+        }
+        
+        # Delete the actual file
+        if room_file.file:
+            room_file.file.delete(save=False)
+        
+        room_file.delete()
+        
+        # Broadcast file deletion to room members
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(
+            f"room_{room_id}",
+            {
+                "type": "file_deleted",
+                "data": file_data
+            }
+        )
+        
+        return Response({'message': 'File deleted successfully'}, status=status.HTTP_204_NO_CONTENT)
+

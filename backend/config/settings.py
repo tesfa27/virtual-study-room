@@ -179,3 +179,22 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173", # Vite Frontend
 ]
 CORS_ALLOW_CREDENTIALS = True # Important for cookies (access_token, refresh_token)
+
+# Media files (User uploads)
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
+# File upload settings
+FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
+DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
+
+# Allowed file types for room uploads
+ALLOWED_FILE_EXTENSIONS = [
+    '.pdf', '.doc', '.docx', '.txt', '.md',  # Documents
+    '.jpg', '.jpeg', '.png', '.gif', '.webp',  # Images
+    '.mp3', '.wav',  # Audio
+    '.zip', '.rar',  # Archives
+    '.py', '.js', '.ts', '.html', '.css',  # Code files
+]
+MAX_FILE_SIZE_MB = 10  # Maximum file size in MB
+

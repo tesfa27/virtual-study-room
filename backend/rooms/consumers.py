@@ -443,6 +443,21 @@ class RoomConsumer(AsyncWebsocketConsumer):
             'data': event['data']
         }))
 
+    # File sharing handlers
+    async def file_uploaded(self, event):
+        """Notify room that a file was uploaded"""
+        await self.send(text_data=json.dumps({
+            'type': 'file_uploaded',
+            'data': event['data']
+        }))
+
+    async def file_deleted(self, event):
+        """Notify room that a file was deleted"""
+        await self.send(text_data=json.dumps({
+            'type': 'file_deleted',
+            'data': event['data']
+        }))
+
     # Group Management Broadcast Handlers
     async def user_kicked(self, event):
         """Notify user they were kicked"""
