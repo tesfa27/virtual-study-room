@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Room, RoomMembership, Message, Reaction
+from .models import Room, RoomMembership, Message, MessageSeen, Reaction, PomodoroSession
 from django.contrib.auth import get_user_model
 from utils.encryption_service import EncryptionService
 
@@ -102,3 +102,18 @@ class MessageSerializer(serializers.ModelSerializer):
         
         data['reactions'] = reactions
         return data
+
+class PomodoroSerializer(serializers.ModelSerializer):
+    current_time = serializers.SerializerMethodField()
+    remaining = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PomodoroSession
+        fields = ['id', 'phase', 'is_running', 'start_time', 'remaining', 'work_duration', 'short_break_duration', 'long_break_duration', 'current_time']
+
+    def get_remaining(self, obj):
+        return obj.get_current_remaining()
+
+    def get_current_time(self, obj):
+        from django.utils import timezone
+        return timezone.now().isoformat()

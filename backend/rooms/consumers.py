@@ -437,6 +437,12 @@ class RoomConsumer(AsyncWebsocketConsumer):
             'emoji': event['emoji']
         }))
 
+    async def pomodoro_update(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'pomodoro_update',
+            'data': event['data']
+        }))
+
     # Group Management Broadcast Handlers
     async def user_kicked(self, event):
         """Notify user they were kicked"""

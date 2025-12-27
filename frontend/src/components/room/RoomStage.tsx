@@ -2,10 +2,9 @@ import {
     Box,
     Typography,
     Paper,
-    Button,
-    Container
+    Chip
 } from "@mui/material";
-import { Clock } from "lucide-react";
+import { Users, Info } from "lucide-react";
 import type { Room } from "../../api/rooms";
 
 interface RoomStageProps {
@@ -14,52 +13,46 @@ interface RoomStageProps {
 
 export default function RoomStage({ room }: RoomStageProps) {
     return (
-        <Container maxWidth="md">
-            <Box display="flex" flexDirection="column" gap={4} alignItems="center" mt={4}>
-
-                {/* Timer Placeholder */}
+        <Box>
+            {/* Room Info Card - Compact */}
+            {room.description && (
                 <Paper
-                    elevation={3}
+                    elevation={1}
                     sx={{
-                        width: '100%',
-                        p: 6,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        borderRadius: 4,
-                        background: 'linear-gradient(145deg, #1e1e1e, #2d2d2d)'
+                        p: 2,
+                        mb: 3,
+                        background: 'rgba(255,255,255,0.03)',
+                        borderRadius: 2
                     }}
                 >
-                    <Clock size={64} className="mb-4 text-blue-400" />
-                    <Typography variant="h2" fontWeight="bold" sx={{ fontFamily: 'monospace', my: 2 }}>
-                        25:00
-                    </Typography>
-                    <Typography variant="subtitle1" color="text.secondary" gutterBottom>
-                        Focus Session (Waiting to start...)
-                    </Typography>
-                    <Box display="flex" gap={2} mt={2}>
-                        <Button variant="contained" color="success" size="large">Start</Button>
-                        <Button variant="outlined" color="error" size="large">Reset</Button>
+                    <Box display="flex" alignItems="flex-start" gap={1.5}>
+                        <Info size={18} style={{ marginTop: 2, opacity: 0.6 }} />
+                        <Box flex={1}>
+                            <Typography variant="body2" color="text.secondary">
+                                {room.description}
+                            </Typography>
+                        </Box>
                     </Box>
                 </Paper>
+            )}
 
-                {/* Room Info */}
-                <Paper sx={{ width: '100%', p: 3 }}>
-                    <Typography variant="h6" gutterBottom>Room Description</Typography>
-                    <Typography variant="body1" color="text.secondary">
-                        {room.description || "No description provided."}
-                    </Typography>
-
-                    <Box mt={2}>
-                        <Typography variant="caption" display="block">
-                            Owner: {room.owner_username}
-                        </Typography>
-                        <Typography variant="caption" display="block">
-                            Capacity: {room.capacity}
-                        </Typography>
-                    </Box>
-                </Paper>
+            {/* Room Stats - Inline Chips */}
+            <Box display="flex" gap={1} flexWrap="wrap">
+                <Chip
+                    icon={<Users size={14} />}
+                    label={`${room.active_members_count} / ${room.capacity} members`}
+                    size="small"
+                    variant="outlined"
+                />
+                {room.topic && (
+                    <Chip
+                        label={room.topic}
+                        size="small"
+                        color="primary"
+                        variant="outlined"
+                    />
+                )}
             </Box>
-        </Container>
+        </Box>
     );
 }
