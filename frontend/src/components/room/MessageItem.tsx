@@ -27,12 +27,14 @@ import {
     Plus,
     Check,
     CheckCheck,
-    MoreVertical
+    MoreVertical,
+    Download
 } from 'lucide-react';
 import Picker from '@emoji-mart/react';
 import data from '@emoji-mart/data';
 import { createPortal } from 'react-dom';
 import type { ChatMessage } from '../../api/rooms';
+import { getCookie } from '../../api/client';
 
 interface MessageItemProps {
     message: ChatMessage;
@@ -86,6 +88,36 @@ export default function MessageItem({
             setEditContent(message.message);
         }
     }, [isEditing, message.message]);
+
+    const handleFileDownload = () => {
+        if (!message.file) return;
+        const token = getCookie("access_token");
+        const fileId = message.file.id;
+        const url = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/rooms/${message.file.room}/files/${fileId}/`;
+
+        fetch(url, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        })
+            .then(response => response.blob())
+            .then(blob => {
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = message.file?.original_filename || 'download';
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+            })
+            .catch(err => console.error("Download failed", err));
+    };
+
+    const getFileIcon = (fileName: string, type: string) => {
+        if (type.startsWith('image/')) return <ImageIcon size={24} color="#4caf50" />;
+        if (fileName.endsWith('.pdf')) return <FileText size={24} color="#f44336" />;
+        // ... simple icon logic
+        return <File size={24} color="#9e9e9e" />;
+    };
 
     // Menu handlers
     const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
@@ -261,22 +293,75 @@ export default function MessageItem({
                                 </Box>
                             </Box>
                         ) : (
-                            // Existing Text Render
-                            <Typography
-                                variant="body2"
-                                sx={{
-                                    whiteSpace: 'pre-wrap',
-                                    wordBreak: 'break-word',
-                                    lineHeight: 1.5
-                                }}
-                            >
-                                {message.message}
-                                {message.is_edited && (
-                                    <Typography component="span" variant="caption" sx={{ fontStyle: 'italic', opacity: 0.7, ml: 0.5, fontSize: '0.65rem' }}>
-                                        (edited)
+                            <>
+                                {message.message_type === 'file' && message.file ? (
+                                    message.file.is_image ? (
+                                        <Box sx={{ mt: 0.5, mb: 1 }}>
+                                            <img
+                                                src={message.file.file_url}
+                                                alt={message.file.original_filename}
+                                                style={{
+                                                    maxWidth: '100%',
+                                                    maxHeight: 300,
+                                                    borderRadius: 8,
+                                                    cursor: 'pointer',
+                                                    border: '1px solid rgba(0,0,0,0.1)'
+                                                }}
+                                                loading="lazy"
+                                                onClick={() => window.open(message.file!.file_url, '_blank')}
+                                            />
+                                        </Box>
+                                    ) : (
+                                        <Box
+                                            sx={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: 1.5,
+                                                mb: message.message ? 1 : 0,
+                                                p: 1,
+                                                bgcolor: 'rgba(0,0,0,0.1)',
+                                                borderRadius: 1,
+                                                cursor: 'pointer',
+                                                '&:hover': { bgcolor: 'rgba(0,0,0,0.15)' }
+                                            }}
+                                            onClick={handleFileDownload}
+                                        >
+                                            <Box p={1} bgcolor="background.paper" borderRadius={1}>
+                                                {getFileIcon(message.file.original_filename, message.file.file_type)}
+                                            </Box>
+                                            <Box>
+                                                <Typography variant="body2" fontWeight={600} noWrap sx={{ maxWidth: 200 }}>
+                                                    {message.file.original_filename}
+                                                </Typography>
+                                                <Typography variant="caption" sx={{ opacity: 0.7 }}>
+                                                    {message.file.file_size_display}
+                                                </Typography>
+                                            </Box>
+                                            <IconButton size="small" sx={{ ml: 'auto' }}>
+                                                <Download size={16} />
+                                            </IconButton>
+                                        </Box>
+                                    )
+                                ) : null}
+
+                                {message.message && (
+                                    <Typography
+                                        variant="body2"
+                                        sx={{
+                                            whiteSpace: 'pre-wrap',
+                                            wordBreak: 'break-word',
+                                            lineHeight: 1.5
+                                        }}
+                                    >
+                                        {message.message}
+                                        {message.is_edited && (
+                                            <Typography component="span" variant="caption" sx={{ fontStyle: 'italic', opacity: 0.7, ml: 0.5, fontSize: '0.65rem' }}>
+                                                (edited)
+                                            </Typography>
+                                        )}
                                     </Typography>
                                 )}
-                            </Typography>
+                            </>
                         )}
 
                         {/* Metadata Row (Time + Status) */}

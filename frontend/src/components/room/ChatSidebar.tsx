@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import MessageItem from './MessageItem';
+import FileList from './FileList';
 import {
     Box,
     Typography,
@@ -35,17 +36,21 @@ import {
     ArrowUpCircle,
     MicOff,
     Smile,
-    X
+    X,
+    FileText,
+    Paperclip
 } from "lucide-react";
-import type { ChatMessage, RoomMember } from "../../api/rooms";
+import { type ChatMessage, type RoomMember, type RoomFile, uploadRoomFile } from "../../api/rooms";
 import type { OnlineUser } from "../../hooks/use-websocket";
 
 interface ChatSidebarProps {
-    activeTab: 'chat' | 'users';
-    setActiveTab: (tab: 'chat' | 'users') => void;
+    roomId: string; // Needed for file upload
+    activeTab: 'chat' | 'users' | 'files';
+    setActiveTab: (tab: 'chat' | 'users' | 'files') => void;
     messages: ChatMessage[];
     users: OnlineUser[];
     allMembers: RoomMember[];
+    files: RoomFile[];
     typingUsers: Map<string, string>;
     isConnected: boolean;
     user: any; // Current User
@@ -100,11 +105,13 @@ const isNewDay = (currentIso?: string, prevIso?: string) => {
 };
 
 export default function ChatSidebar({
+    roomId,
     activeTab,
     setActiveTab,
     messages,
     users,
     allMembers,
+    files,
     typingUsers,
     isConnected,
     user,
@@ -145,6 +152,7 @@ export default function ChatSidebar({
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const chatContainerRef = useRef<HTMLDivElement>(null);
     const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
     // Track if we have performed the initial scroll to bottom
     const hasInitialScrolled = useRef(false);
     // Track previous scroll height for pagination restoration
@@ -234,6 +242,20 @@ export default function ChatSidebar({
     }, [allMembers]); // allMembers changes when room changes/loads
 
     // Chat Handlers
+    const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        try {
+            await uploadRoomFile(roomId, file, "Shared via chat");
+        } catch (error) {
+            console.error("Failed to upload file", error);
+            // alert("Failed to upload file"); // Keep UI clean
+        } finally {
+            if (fileInputRef.current) fileInputRef.current.value = "";
+        }
+    };
+
     const handleSendMessage = (e: React.FormEvent) => {
         e.preventDefault();
         if (newMessage.trim()) {
@@ -294,33 +316,75 @@ export default function ChatSidebar({
         handleUserMenuClose();
     };
 
+    const currentUserRole = user?.role;
 
+    // Role check for file permissions
+    const canUploadFile = useMemo(() => {
+        // Any member can upload
+        return true;
+    }, []);
+
+    const canDeleteFile = (file: RoomFile) => {
+        // Uploader, owner, or admin/mod can delete
+        if (file.uploaded_by === user?.id) return true;
+        if (currentUserRole === 'admin' || currentUserRole === 'moderator') return true;
+        // Check if owner (need room details passed down or inferred)
+        // For now assume admin/mod is enough along with uploader
+        return false;
+    };
 
     return (
-        <Box sx={{ width: 400, display: 'flex', flexDirection: 'column', height: '100%' }}>
-            {/* Tabs */}
-            <Box p={2} borderBottom={1} borderColor="divider">
-                <Box display="flex" justifyContent="space-around">
+        <Box
+            sx={{
+                width: 400,
+                borderLeft: '1px solid',
+                borderColor: 'divider',
+                display: 'flex',
+                flexDirection: 'column',
+                height: '100%',
+                bgcolor: 'background.paper'
+            }}
+        >
+            {/* Tabs Header */}
+            <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+                <Box display="flex">
                     <Button
-                        startIcon={<MessageSquare size={18} />}
-                        variant={activeTab === 'chat' ? "contained" : "text"}
-                        onClick={() => setActiveTab('chat')}
                         fullWidth
+                        variant={activeTab === 'chat' ? 'contained' : 'text'}
+                        onClick={() => setActiveTab('chat')}
+                        sx={{ borderRadius: 0, py: 1.5 }}
+                        startIcon={<MessageSquare size={18} />}
                     >
                         Chat
                     </Button>
                     <Button
-                        startIcon={<Users size={18} />}
-                        variant={activeTab === 'users' ? "contained" : "text"}
-                        onClick={() => setActiveTab('users')}
                         fullWidth
+                        variant={activeTab === 'users' ? 'contained' : 'text'}
+                        onClick={() => setActiveTab('users')}
+                        sx={{ borderRadius: 0, py: 1.5 }}
+                        startIcon={<Users size={18} />}
                     >
-                        People
+                        Users
+                        <Chip
+                            label={users.length}
+                            size="small"
+                            color={activeTab === 'users' ? 'default' : 'primary'}
+                            sx={{ ml: 1, height: 20, minWidth: 20, px: 0.5 }}
+                        />
+                    </Button>
+                    <Button
+                        fullWidth
+                        variant={activeTab === 'files' ? 'contained' : 'text'}
+                        onClick={() => setActiveTab('files')}
+                        sx={{ borderRadius: 0, py: 1.5 }}
+                        startIcon={<FileText size={18} />}
+                    >
+                        Files
                     </Button>
                 </Box>
             </Box>
 
-            {/* Content Content (Chat or Users) */}
+            {/* Content Content (Chat, Users, or Files) */}
             <Box ref={chatContainerRef} onScroll={handleScroll} flexGrow={1} overflow="auto" p={2} display="flex" flexDirection="column">
                 {activeTab === 'chat' ? (
                     <>
@@ -408,7 +472,7 @@ export default function ChatSidebar({
                             </Box>
                         )}
                     </>
-                ) : (
+                ) : activeTab === 'users' ? (
                     <>
                         <List>
                             {displayUsers.map((u) => (
@@ -461,9 +525,14 @@ export default function ChatSidebar({
                             <MenuItem onClick={handleMuteClick}><Volume2 size={16} style={{ marginRight: 8 }} /> Mute User</MenuItem>
                             <MenuItem onClick={handleKickClick} sx={{ color: 'error.main' }}><UserX size={16} style={{ marginRight: 8 }} /> Kick User</MenuItem>
                         </Menu>
-
-
                     </>
+                ) : (
+                    <FileList
+                        roomId={roomId}
+                        files={files}
+                        canUpload={canUploadFile}
+                        canDelete={canDeleteFile}
+                    />
                 )}
             </Box>
 
@@ -506,7 +575,21 @@ export default function ChatSidebar({
                     )}
 
                     <form onSubmit={handleSendMessage}>
-                        <Box display="flex" gap={1}>
+                        <Box display="flex" gap={1} alignItems="center">
+                            <IconButton
+                                size="small"
+                                onClick={() => fileInputRef.current?.click()}
+                                disabled={!isConnected}
+                                sx={{ color: 'text.secondary' }}
+                            >
+                                <Paperclip size={20} />
+                            </IconButton>
+                            <input
+                                type="file"
+                                ref={fileInputRef}
+                                style={{ display: 'none' }}
+                                onChange={handleFileSelect}
+                            />
                             <TextField
                                 fullWidth
                                 size="small"

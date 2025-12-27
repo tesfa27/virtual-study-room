@@ -48,8 +48,12 @@ class Message(models.Model):
     # Reply feature: reference to the message being replied to
     replied_to = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='replies')
     
+    # Optional file attachment
+    file = models.ForeignKey('RoomFile', on_delete=models.SET_NULL, null=True, blank=True, related_name='messages')
+    
     MESSAGE_TYPES = [
         ('chat', 'Chat'),
+        ('file', 'File'),
         ('join', 'Join'),
         ('leave', 'Leave'),
         ('system', 'System'),
@@ -120,3 +124,63 @@ class PomodoroSession(models.Model):
 
     def __str__(self):
         return f"Pomodoro for {self.room.name}"
+
+
+def room_file_path(instance, filename):
+    """Generate upload path: room_files/<room_id>/<uuid>_<filename>"""
+    import os
+    ext = os.path.splitext(filename)[1]
+    new_filename = f"{uuid.uuid4()}{ext}"
+    return f"room_files/{instance.room.id}/{new_filename}"
+
+
+class RoomFile(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    room = models.ForeignKey(Room, on_delete=models.CASCADE, related_name='files')
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        related_name='uploaded_files'
+    )
+    
+    # File info
+    file = models.FileField(upload_to=room_file_path)
+    original_filename = models.CharField(max_length=255)
+    file_size = models.PositiveIntegerField()  # in bytes
+    file_type = models.CharField(max_length=100)  # MIME type
+    
+    # Metadata
+    description = models.TextField(blank=True)
+    download_count = models.PositiveIntegerField(default=0)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['room', '-created_at']),
+        ]
+
+    def __str__(self):
+        return f"{self.original_filename} in {self.room.name}"
+
+    @property
+    def file_extension(self):
+        import os
+        return os.path.splitext(self.original_filename)[1].lower()
+
+    @property
+    def is_image(self):
+        return self.file_type.startswith('image/')
+
+    @property
+    def file_size_display(self):
+        """Human-readable file size"""
+        size = self.file_size
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if size < 1024:
+                return f"{size:.1f} {unit}"
+            size /= 1024
+        return f"{size:.1f} TB"
+

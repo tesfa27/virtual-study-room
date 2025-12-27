@@ -1,4 +1,4 @@
-import { apiClient } from "./client";
+import { apiClient, getCookie } from "./client";
 
 /**
  * Room API Types
@@ -74,7 +74,7 @@ export interface ChatMessage {
     is_edited?: boolean;
     seen_by?: string[];
     created_at?: string;
-    message_type?: 'chat' | 'join' | 'leave' | 'system';
+    message_type?: 'chat' | 'file' | 'join' | 'leave' | 'system';
     reactions?: { [emoji: string]: string[] };
     replied_to_message?: {
         id: string;
@@ -82,6 +82,7 @@ export interface ChatMessage {
         message: string;
         created_at: string;
     } | null;
+    file?: RoomFile;
 }
 
 /**
@@ -158,5 +159,65 @@ export async function updatePomodoroSession(id: string, action: string, data?: a
     return apiClient<PomodoroSession>(`/rooms/${id}/pomodoro/`, {
         method: 'POST',
         body: JSON.stringify({ action, ...data })
+    });
+}
+
+export interface RoomFile {
+    id: string;
+    room: string;
+    uploaded_by: string; // User ID
+    uploaded_by_username: string;
+    file_url: string;
+    original_filename: string;
+    file_size_display: string;
+    file_type: string;
+    file_extension: string;
+    is_image: boolean;
+    description: string;
+    download_count: number;
+    created_at: string;
+}
+
+/**
+ * Get all files in a room
+ */
+export async function getRoomFiles(roomId: string): Promise<RoomFile[]> {
+    return apiClient<RoomFile[]>(`/rooms/${roomId}/files/`);
+}
+
+/**
+ * Upload a file to a room
+ */
+export async function uploadRoomFile(roomId: string, file: File, description = ""): Promise<RoomFile> {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("description", description);
+
+    // Note: We don't use apiClient here because it stringifies body by default.
+    // We need to send FormData. We'll reuse the auth token logic from `auth.ts` or localStorage.
+    const token = getCookie("access_token"); // Assuming simple token storage
+
+    // Using fetch directly for FormData support
+    const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/rooms/${roomId}/files/`, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${token}`
+        },
+        body: formData
+    });
+
+    if (!res.ok) {
+        throw new Error('Upload failed');
+    }
+
+    return res.json();
+}
+
+/**
+ * Delete a file from a room
+ */
+export async function deleteRoomFile(roomId: string, fileId: string): Promise<void> {
+    return apiClient<void>(`/rooms/${roomId}/files/${fileId}/`, {
+        method: 'DELETE'
     });
 }
