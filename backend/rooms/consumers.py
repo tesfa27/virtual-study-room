@@ -79,6 +79,20 @@ class RoomConsumer(AsyncWebsocketConsumer):
         elif message_type == 'mute_user':
             await self.handle_mute_user(data.get('user_id'), data.get('duration'))
 
+        # WebRTC Signaling
+        elif message_type == 'webrtc_offer':
+            await self.handle_webrtc_offer(data)
+        elif message_type == 'webrtc_answer':
+            await self.handle_webrtc_answer(data)
+        elif message_type == 'ice_candidate':
+            await self.handle_ice_candidate(data)
+        elif message_type == 'call_toggle_audio':
+            await self.handle_call_toggle_audio(data.get('enabled', True))
+        elif message_type == 'call_toggle_video':
+            await self.handle_call_toggle_video(data.get('enabled', True))
+        elif message_type == 'call_toggle_screen':
+            await self.handle_call_toggle_screen(data.get('enabled', False))
+
     async def handle_chat_message(self, content, replied_to_id=None):
         # Check if user is muted
         is_muted = await self.is_user_muted()
@@ -794,3 +808,217 @@ class RoomConsumer(AsyncWebsocketConsumer):
         key = f"room:{room_id}:online_users"
         data = cache.get(key, {})
         return list(data.values())
+
+    # ========================================================================
+    # WebRTC Signaling Handlers
+    # ========================================================================
+    
+    async def handle_webrtc_offer(self, data):
+        """
+        Forward WebRTC SDP offer to target peer.
+        Mesh topology: offer is sent to a specific target user.
+        """
+        target_user_id = data.get('target_user_id')
+        offer = data.get('offer')
+        
+        if not target_user_id or not offer:
+            await self.send_error('Invalid WebRTC offer: missing target_user_id or offer')
+            return
+        
+        # Send offer to the target user's channel
+        await self.channel_layer.group_send(
+            f'user_{target_user_id}',
+            {
+                'type': 'webrtc_offer',
+                'from_user_id': str(self.user.id),
+                'from_username': self.user.username,
+                'offer': offer,
+                'room_id': str(self.room_id),
+            }
+        )
+    
+    async def handle_webrtc_answer(self, data):
+        """
+        Forward WebRTC SDP answer to the offering peer.
+        """
+        target_user_id = data.get('target_user_id')
+        answer = data.get('answer')
+        
+        if not target_user_id or not answer:
+            await self.send_error('Invalid WebRTC answer: missing target_user_id or answer')
+            return
+        
+        await self.channel_layer.group_send(
+            f'user_{target_user_id}',
+            {
+                'type': 'webrtc_answer',
+                'from_user_id': str(self.user.id),
+                'from_username': self.user.username,
+                'answer': answer,
+                'room_id': str(self.room_id),
+            }
+        )
+    
+    async def handle_ice_candidate(self, data):
+        """
+        Forward ICE candidate to target peer.
+        """
+        target_user_id = data.get('target_user_id')
+        candidate = data.get('candidate')
+        
+        if not target_user_id:
+            await self.send_error('Invalid ICE candidate: missing target_user_id')
+            return
+        
+        await self.channel_layer.group_send(
+            f'user_{target_user_id}',
+            {
+                'type': 'ice_candidate',
+                'from_user_id': str(self.user.id),
+                'from_username': self.user.username,
+                'candidate': candidate,
+                'room_id': str(self.room_id),
+            }
+        )
+    
+    async def handle_call_toggle_audio(self, enabled):
+        """Broadcast audio toggle to room participants"""
+        await self.update_participant_media_state('is_audio_enabled', enabled)
+        await self.channel_layer.group_send(
+            self.room_group_name,
+            {
+                'type': 'call_media_toggle',
+                'user_id': str(self.user.id),
+                'username': self.user.username,
+                'media_type': 'audio',
+                'enabled': enabled,
+            }
+        )
+    
+    async def handle_call_toggle_video(self, enabled):
+        """Broadcast video toggle to room participants"""
+        await self.update_participant_media_state('is_video_enabled', enabled)
+        await self.channel_layer.group_send(
+            self.room_group_name,
+            {
+                'type': 'call_media_toggle',
+                'user_id': str(self.user.id),
+                'username': self.user.username,
+                'media_type': 'video',
+                'enabled': enabled,
+            }
+        )
+    
+    async def handle_call_toggle_screen(self, enabled):
+        """Broadcast screen share toggle to room participants"""
+        await self.update_participant_media_state('is_screen_sharing', enabled)
+        await self.channel_layer.group_send(
+            self.room_group_name,
+            {
+                'type': 'call_media_toggle',
+                'user_id': str(self.user.id),
+                'username': self.user.username,
+                'media_type': 'screen',
+                'enabled': enabled,
+            }
+        )
+    
+    @database_sync_to_async
+    def update_participant_media_state(self, field, value):
+        """Update participant's media state in database"""
+        from .models import CallSession, CallParticipant
+        try:
+            active_call = CallSession.objects.filter(
+                room_id=self.room_id, 
+                status='active'
+            ).first()
+            if active_call:
+                CallParticipant.objects.filter(
+                    call=active_call,
+                    user=self.user,
+                    left_at__isnull=True
+                ).update(**{field: value})
+        except Exception as e:
+            print(f"Error updating media state: {e}")
+
+    # WebRTC Broadcast Handlers (send to client)
+    async def webrtc_offer(self, event):
+        """Send WebRTC offer to client"""
+        await self.send(text_data=json.dumps({
+            'type': 'webrtc_offer',
+            'from_user_id': event['from_user_id'],
+            'from_username': event['from_username'],
+            'offer': event['offer'],
+            'room_id': event['room_id'],
+        }))
+    
+    async def webrtc_answer(self, event):
+        """Send WebRTC answer to client"""
+        await self.send(text_data=json.dumps({
+            'type': 'webrtc_answer',
+            'from_user_id': event['from_user_id'],
+            'from_username': event['from_username'],
+            'answer': event['answer'],
+            'room_id': event['room_id'],
+        }))
+    
+    async def ice_candidate(self, event):
+        """Send ICE candidate to client"""
+        await self.send(text_data=json.dumps({
+            'type': 'ice_candidate',
+            'from_user_id': event['from_user_id'],
+            'from_username': event['from_username'],
+            'candidate': event['candidate'],
+            'room_id': event['room_id'],
+        }))
+    
+    async def call_media_toggle(self, event):
+        """Notify clients of media state changes"""
+        await self.send(text_data=json.dumps({
+            'type': 'call_media_toggle',
+            'user_id': event['user_id'],
+            'username': event['username'],
+            'media_type': event['media_type'],
+            'enabled': event['enabled'],
+        }))
+    
+    # Call Lifecycle Broadcasts (triggered from REST API)
+    async def call_started(self, event):
+        """Notify room that a call has started"""
+        await self.send(text_data=json.dumps({
+            'type': 'call_started',
+            'call_id': event['call_id'],
+            'call_type': event['call_type'],
+            'initiated_by': event['initiated_by'],
+            'initiated_by_id': event['initiated_by_id'],
+        }))
+    
+    async def call_ended(self, event):
+        """Notify room that a call has ended"""
+        await self.send(text_data=json.dumps({
+            'type': 'call_ended',
+            'call_id': event['call_id'],
+            'reason': event.get('reason', 'ended'),
+            'ended_by': event.get('ended_by'),
+        }))
+    
+    async def call_participant_joined(self, event):
+        """Notify room that a participant joined the call"""
+        await self.send(text_data=json.dumps({
+            'type': 'call_participant_joined',
+            'call_id': event['call_id'],
+            'user_id': event['user_id'],
+            'username': event['username'],
+            'is_audio_enabled': event.get('is_audio_enabled', True),
+            'is_video_enabled': event.get('is_video_enabled', True),
+        }))
+    
+    async def call_participant_left(self, event):
+        """Notify room that a participant left the call"""
+        await self.send(text_data=json.dumps({
+            'type': 'call_participant_left',
+            'call_id': event['call_id'],
+            'user_id': event['user_id'],
+            'username': event['username'],
+        }))
+

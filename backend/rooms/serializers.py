@@ -179,3 +179,73 @@ class RoomFileSerializer(serializers.ModelSerializer):
             return request.build_absolute_uri(obj.file.url)
         return None
 
+
+# ============================================================================
+# WebRTC Call Serializers
+# ============================================================================
+
+from .models import CallSession, CallParticipant, ICEServer
+
+
+class CallParticipantSerializer(serializers.ModelSerializer):
+    """Serializer for call participants"""
+    username = serializers.ReadOnlyField(source='user.username')
+    user_id = serializers.ReadOnlyField(source='user.id')
+    
+    class Meta:
+        model = CallParticipant
+        fields = [
+            'id', 'user_id', 'username',
+            'is_audio_enabled', 'is_video_enabled', 'is_screen_sharing',
+            'is_connected', 'joined_at', 'left_at', 'is_active'
+        ]
+        read_only_fields = ['id', 'user_id', 'username', 'joined_at', 'left_at', 'is_active']
+
+
+class CallSessionSerializer(serializers.ModelSerializer):
+    """Serializer for call sessions with nested participants"""
+    participants = CallParticipantSerializer(many=True, read_only=True)
+    initiated_by_username = serializers.ReadOnlyField(source='initiated_by.username')
+    participant_count = serializers.ReadOnlyField()
+    duration_seconds = serializers.ReadOnlyField()
+    
+    class Meta:
+        model = CallSession
+        fields = [
+            'id', 'room', 'call_type', 'status',
+            'initiated_by', 'initiated_by_username',
+            'started_at', 'ended_at', 'duration_seconds',
+            'max_participants', 'participant_count', 'participants'
+        ]
+        read_only_fields = [
+            'id', 'room', 'initiated_by', 'initiated_by_username',
+            'started_at', 'ended_at', 'duration_seconds',
+            'participant_count', 'participants'
+        ]
+
+
+class CallSessionListSerializer(serializers.ModelSerializer):
+    """Lightweight serializer for listing calls (without full participant details)"""
+    initiated_by_username = serializers.ReadOnlyField(source='initiated_by.username')
+    participant_count = serializers.ReadOnlyField()
+    
+    class Meta:
+        model = CallSession
+        fields = [
+            'id', 'room', 'call_type', 'status',
+            'initiated_by_username', 'started_at', 'participant_count'
+        ]
+
+
+class ICEServerSerializer(serializers.ModelSerializer):
+    """Serializer for ICE server configuration"""
+    
+    class Meta:
+        model = ICEServer
+        fields = ['server_type', 'url', 'username', 'credential']
+    
+    def to_representation(self, instance):
+        """Return in RTCIceServer format"""
+        return instance.to_ice_server_dict()
+
+

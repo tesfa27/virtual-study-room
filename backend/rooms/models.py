@@ -184,3 +184,145 @@ class RoomFile(models.Model):
             size /= 1024
         return f"{size:.1f} TB"
 
+
+# ============================================================================
+# WebRTC Call Models
+# ============================================================================
+
+class CallSession(models.Model):
+    """
+    Represents an active voice/video call session in a room.
+    Only one active call per room at a time.
+    """
+    CALL_TYPE_CHOICES = [
+        ('audio', 'Audio Only'),
+        ('video', 'Video Call'),
+    ]
+    
+    STATUS_CHOICES = [
+        ('active', 'Active'),
+        ('ended', 'Ended'),
+    ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    room = models.ForeignKey(Room, on_delete=models.CASCADE, related_name='call_sessions')
+    
+    # Call metadata
+    call_type = models.CharField(max_length=10, choices=CALL_TYPE_CHOICES, default='video')
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='active')
+    
+    # Who initiated the call
+    initiated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, 
+        on_delete=models.SET_NULL, 
+        null=True,
+        related_name='initiated_calls'
+    )
+    
+    # Timestamps
+    started_at = models.DateTimeField(auto_now_add=True)
+    ended_at = models.DateTimeField(null=True, blank=True)
+    
+    # Settings
+    max_participants = models.PositiveIntegerField(default=10)
+    
+    class Meta:
+        ordering = ['-started_at']
+        indexes = [
+            models.Index(fields=['room', 'status']),
+        ]
+    
+    def __str__(self):
+        return f"Call in {self.room.name} ({self.status})"
+    
+    @property
+    def duration_seconds(self):
+        """Calculate call duration in seconds"""
+        from django.utils import timezone
+        end = self.ended_at or timezone.now()
+        return int((end - self.started_at).total_seconds())
+    
+    @property
+    def participant_count(self):
+        return self.participants.filter(left_at__isnull=True).count()
+
+
+class CallParticipant(models.Model):
+    """
+    Tracks individual participants in a call session.
+    Stores their media state (audio/video on/off).
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    call = models.ForeignKey(CallSession, on_delete=models.CASCADE, related_name='participants')
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, 
+        on_delete=models.CASCADE, 
+        related_name='call_participations'
+    )
+    
+    # Media state
+    is_audio_enabled = models.BooleanField(default=True)
+    is_video_enabled = models.BooleanField(default=True)
+    is_screen_sharing = models.BooleanField(default=False)
+    
+    # Connection state
+    is_connected = models.BooleanField(default=False)
+    
+    # Timestamps
+    joined_at = models.DateTimeField(auto_now_add=True)
+    left_at = models.DateTimeField(null=True, blank=True)
+    
+    class Meta:
+        unique_together = ('call', 'user')
+        ordering = ['joined_at']
+        indexes = [
+            models.Index(fields=['call', 'user']),
+        ]
+    
+    def __str__(self):
+        status = "active" if self.left_at is None else "left"
+        return f"{self.user.username} in call ({status})"
+    
+    @property
+    def is_active(self):
+        return self.left_at is None
+
+
+class ICEServer(models.Model):
+    """
+    STUN/TURN server configuration for WebRTC.
+    Allows admin to configure ICE servers without code changes.
+    """
+    SERVER_TYPE_CHOICES = [
+        ('stun', 'STUN'),
+        ('turn', 'TURN'),
+        ('turns', 'TURNS'),
+    ]
+    
+    server_type = models.CharField(max_length=5, choices=SERVER_TYPE_CHOICES)
+    url = models.CharField(max_length=255, help_text="e.g., stun:stun.l.google.com:19302")
+    username = models.CharField(max_length=100, blank=True)
+    credential = models.CharField(max_length=255, blank=True)
+    
+    is_active = models.BooleanField(default=True)
+    priority = models.PositiveIntegerField(default=0, help_text="Higher priority servers are used first")
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['-priority', 'server_type']
+        verbose_name = "ICE Server"
+        verbose_name_plural = "ICE Servers"
+    
+    def __str__(self):
+        return f"{self.server_type.upper()}: {self.url}"
+    
+    def to_ice_server_dict(self):
+        """Convert to WebRTC RTCIceServer format"""
+        server = {"urls": self.url}
+        if self.username:
+            server["username"] = self.username
+        if self.credential:
+            server["credential"] = self.credential
+        return server
+

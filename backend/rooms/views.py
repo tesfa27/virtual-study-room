@@ -461,3 +461,256 @@ class RoomFileDetailView(APIView):
         
         return Response({'message': 'File deleted successfully'}, status=status.HTTP_204_NO_CONTENT)
 
+
+# ============================================================================
+# WebRTC Call API Views
+# ============================================================================
+
+from .models import CallSession, CallParticipant, ICEServer
+from .serializers import CallSessionSerializer, CallSessionListSerializer, ICEServerSerializer
+
+
+class RoomCallView(APIView):
+    """
+    Manage call sessions for a room.
+    GET: Get active call or call history
+    POST: Start a new call
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_room(self, room_id):
+        return get_object_or_404(Room, id=room_id)
+    
+    def check_membership(self, room, user):
+        """Check if user is a member of the room"""
+        is_owner = room.owner == user
+        is_member = RoomMembership.objects.filter(room=room, user=user).exists()
+        if not (is_owner or is_member):
+            raise exceptions.PermissionDenied("You must be a member of this room.")
+    
+    def get(self, request, room_id):
+        """Get active call session for the room"""
+        room = self.get_room(room_id)
+        self.check_membership(room, request.user)
+        
+        # Check for active call
+        active_call = CallSession.objects.filter(
+            room=room, 
+            status='active'
+        ).prefetch_related('participants', 'participants__user').first()
+        
+        if active_call:
+            serializer = CallSessionSerializer(active_call, context={'request': request})
+            return Response(serializer.data)
+        
+        return Response({'active_call': None})
+    
+    def post(self, request, room_id):
+        """Start a new call or join existing call"""
+        room = self.get_room(room_id)
+        self.check_membership(room, request.user)
+        
+        call_type = request.data.get('call_type', 'video')
+        
+        # Check for existing active call
+        active_call = CallSession.objects.filter(room=room, status='active').first()
+        
+        if active_call:
+            # Join existing call
+            participant, created = CallParticipant.objects.get_or_create(
+                call=active_call,
+                user=request.user,
+                defaults={
+                    'is_audio_enabled': request.data.get('audio_enabled', True),
+                    'is_video_enabled': request.data.get('video_enabled', call_type == 'video'),
+                }
+            )
+            
+            if not created and participant.left_at:
+                # Rejoin - reset state
+                participant.left_at = None
+                participant.is_connected = False
+                participant.save()
+            
+            serializer = CallSessionSerializer(active_call, context={'request': request})
+            
+            # Broadcast participant joined
+            channel_layer = get_channel_layer()
+            async_to_sync(channel_layer.group_send)(
+                f"room_{room_id}",
+                {
+                    "type": "call_participant_joined",
+                    "call_id": str(active_call.id),
+                    "user_id": str(request.user.id),
+                    "username": request.user.username,
+                    "is_audio_enabled": participant.is_audio_enabled,
+                    "is_video_enabled": participant.is_video_enabled,
+                }
+            )
+            
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        
+        # Create new call
+        call = CallSession.objects.create(
+            room=room,
+            initiated_by=request.user,
+            call_type=call_type,
+        )
+        
+        # Add initiator as first participant
+        CallParticipant.objects.create(
+            call=call,
+            user=request.user,
+            is_audio_enabled=request.data.get('audio_enabled', True),
+            is_video_enabled=request.data.get('video_enabled', call_type == 'video'),
+        )
+        
+        serializer = CallSessionSerializer(call, context={'request': request})
+        
+        # Broadcast call started
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(
+            f"room_{room_id}",
+            {
+                "type": "call_started",
+                "call_id": str(call.id),
+                "call_type": call_type,
+                "initiated_by": request.user.username,
+                "initiated_by_id": str(request.user.id),
+            }
+        )
+        
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class RoomCallLeaveView(APIView):
+    """Leave an active call"""
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def post(self, request, room_id):
+        """Leave the active call"""
+        room = get_object_or_404(Room, id=room_id)
+        
+        active_call = CallSession.objects.filter(room=room, status='active').first()
+        if not active_call:
+            return Response({'error': 'No active call'}, status=status.HTTP_404_NOT_FOUND)
+        
+        participant = CallParticipant.objects.filter(
+            call=active_call, 
+            user=request.user,
+            left_at__isnull=True
+        ).first()
+        
+        if not participant:
+            return Response({'error': 'Not in call'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Mark participant as left
+        participant.left_at = timezone.now()
+        participant.is_connected = False
+        participant.save()
+        
+        # Broadcast participant left
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(
+            f"room_{room_id}",
+            {
+                "type": "call_participant_left",
+                "call_id": str(active_call.id),
+                "user_id": str(request.user.id),
+                "username": request.user.username,
+            }
+        )
+        
+        # Check if call should end (no more participants)
+        remaining = active_call.participants.filter(left_at__isnull=True).count()
+        if remaining == 0:
+            active_call.status = 'ended'
+            active_call.ended_at = timezone.now()
+            active_call.save()
+            
+            async_to_sync(channel_layer.group_send)(
+                f"room_{room_id}",
+                {
+                    "type": "call_ended",
+                    "call_id": str(active_call.id),
+                    "reason": "all_participants_left",
+                }
+            )
+        
+        return Response({'message': 'Left call successfully'})
+
+
+class RoomCallEndView(APIView):
+    """End an active call (requires moderator/admin)"""
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def post(self, request, room_id):
+        """Force end the active call"""
+        room = get_object_or_404(Room, id=room_id)
+        
+        # Check permissions (owner, admin, moderator, or call initiator)
+        is_owner = room.owner == request.user
+        is_admin = RoomMembership.objects.filter(
+            room=room, user=request.user, role__in=['admin', 'moderator']
+        ).exists()
+        
+        active_call = CallSession.objects.filter(room=room, status='active').first()
+        if not active_call:
+            return Response({'error': 'No active call'}, status=status.HTTP_404_NOT_FOUND)
+        
+        is_initiator = active_call.initiated_by == request.user
+        
+        if not (is_owner or is_admin or is_initiator):
+            raise exceptions.PermissionDenied("You don't have permission to end this call.")
+        
+        # End the call
+        active_call.status = 'ended'
+        active_call.ended_at = timezone.now()
+        active_call.save()
+        
+        # Mark all participants as left
+        active_call.participants.filter(left_at__isnull=True).update(
+            left_at=timezone.now(),
+            is_connected=False
+        )
+        
+        # Broadcast call ended
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(
+            f"room_{room_id}",
+            {
+                "type": "call_ended",
+                "call_id": str(active_call.id),
+                "reason": "ended_by_host",
+                "ended_by": request.user.username,
+            }
+        )
+        
+        return Response({'message': 'Call ended successfully'})
+
+
+class ICEServersView(APIView):
+    """Get ICE server configuration for WebRTC"""
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get(self, request):
+        """Return list of ICE servers for WebRTC configuration"""
+        ice_servers = ICEServer.objects.filter(is_active=True)
+        
+        if ice_servers.exists():
+            # Use configured servers
+            servers = [server.to_ice_server_dict() for server in ice_servers]
+        else:
+            # Default to public STUN servers
+            servers = [
+                {"urls": "stun:stun.l.google.com:19302"},
+                {"urls": "stun:stun1.l.google.com:19302"},
+                {"urls": "stun:stun2.l.google.com:19302"},
+            ]
+        
+        return Response({
+            "iceServers": servers,
+            "iceCandidatePoolSize": 10,
+        })
+
+
