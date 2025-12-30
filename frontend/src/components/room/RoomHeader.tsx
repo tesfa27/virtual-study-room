@@ -1,3 +1,4 @@
+import React from "react";
 import {
     Box,
     Typography,
@@ -15,9 +16,10 @@ interface RoomHeaderProps {
     unreadCount: number;
     onLeave: () => void;
     onToggleSidebar: () => void;
+    callButton?: React.ReactNode;
 }
 
-export default function RoomHeader({ room, unreadCount, onLeave, onToggleSidebar }: RoomHeaderProps) {
+export default function RoomHeader({ room, unreadCount, onLeave, onToggleSidebar, callButton }: RoomHeaderProps) {
     return (
         <AppBar position="fixed" sx={{ zIndex: (theme) => theme.zIndex.drawer + 1 }}>
             <Toolbar>
@@ -37,6 +39,10 @@ export default function RoomHeader({ room, unreadCount, onLeave, onToggleSidebar
                 {/* Room Controls Header */}
                 <Box display="flex" alignItems="center" gap={2}>
                     <Chip label={room.topic || "General"} size="small" color="secondary" />
+
+                    {/* Call Button */}
+                    {callButton}
+
                     {unreadCount > 0 && (
                         <Chip
                             label={`${unreadCount} unread`}
@@ -57,3 +63,4 @@ export default function RoomHeader({ room, unreadCount, onLeave, onToggleSidebar
         </AppBar>
     );
 }
+

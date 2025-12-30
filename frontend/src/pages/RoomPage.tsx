@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { getRoomMembers } from "../api/rooms";
+import { getRoomMembers, joinCall, leaveCall, getRoomCall } from "../api/rooms";
 import PomodoroTimer from "../components/room/PomodoroTimer";
 import {
     Box,
@@ -17,13 +17,15 @@ import { useRoom } from "../hooks/use-rooms";
 import { useAuth } from "../hooks/use-auth";
 import { useWebSocket } from "../hooks/use-websocket";
 import { useRoomMembership } from "../hooks/use-room-membership";
+import { useWebRTC, type WebRTCMessage } from "../hooks/use-webrtc";
 
 // Components
 import RoomHeader from "../components/room/RoomHeader";
 import RoomStage from "../components/room/RoomStage";
 import ChatSidebar from "../components/room/ChatSidebar";
 import JoinRoomDialog from "../components/room/JoinRoomDialog";
-import OnlineUsersGrid from "../components/room/OnlineUsersGrid";
+import StudyStreamGrid from "../components/room/StudyStreamGrid";
+import CallButton from "../components/room/CallButton";
 
 export default function RoomPage() {
     const { id = "" } = useParams<{ id: string }>();
@@ -43,18 +45,113 @@ export default function RoomPage() {
     } = useRoomMembership(id, user);
 
     // 3. WebSocket Connection
-    // Note: We pass the ID. The hook handles connection logic internally.
     const ws = useWebSocket(id);
 
-    // 4. UI State
+    // 4. WebRTC Hook
+    const webrtc = useWebRTC({
+        roomId: id,
+        userId: user?.id || '',
+        username: user?.username || '',
+        sendSignal: ws.sendSignal,
+    });
+
+    // 5. UI State
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [activeTab, setActiveTab] = useState<'chat' | 'users' | 'files'>('chat');
+    const [isJoiningCall, setIsJoiningCall] = useState(false);
 
     const { data: members = [] } = useQuery({
         queryKey: ['room', id, 'members'],
         queryFn: () => getRoomMembers(id),
         enabled: !!id
     });
+
+    // Fetch active call on mount
+    useEffect(() => {
+        if (hasJoined && id) {
+            getRoomCall(id).then(data => {
+                if ('id' in data && data.status === 'active') {
+                    ws.setActiveCall(data);
+                }
+            }).catch(() => { });
+        }
+    }, [hasJoined, id]);
+
+    // Handle incoming WebRTC signals
+    useEffect(() => {
+        if (ws.callSignal) {
+            webrtc.handleSignalingMessage(ws.callSignal as WebRTCMessage);
+            ws.clearCallSignal();
+        }
+    }, [ws.callSignal, webrtc.handleSignalingMessage, ws.clearCallSignal]);
+
+    // Start video call
+    const handleStartVideoCall = async () => {
+        setIsJoiningCall(true);
+        try {
+            const success = await webrtc.startCall('video');
+            if (success) {
+                const callData = await joinCall(id, { call_type: 'video' });
+                webrtc.setCallSession(callData);
+                ws.setActiveCall(callData);
+            }
+        } catch (err) {
+            console.error('Failed to start video call:', err);
+        } finally {
+            setIsJoiningCall(false);
+        }
+    };
+
+    // Start audio call
+    const handleStartAudioCall = async () => {
+        setIsJoiningCall(true);
+        try {
+            const success = await webrtc.startCall('audio');
+            if (success) {
+                const callData = await joinCall(id, { call_type: 'audio' });
+                webrtc.setCallSession(callData);
+                ws.setActiveCall(callData);
+            }
+        } catch (err) {
+            console.error('Failed to start audio call:', err);
+        } finally {
+            setIsJoiningCall(false);
+        }
+    };
+
+    // Join existing call
+    const handleJoinCall = async () => {
+        if (!ws.activeCall) return;
+        setIsJoiningCall(true);
+        try {
+            const success = await webrtc.startCall(ws.activeCall.call_type);
+            if (success) {
+                const callData = await joinCall(id);
+                webrtc.setCallSession(callData);
+
+                // Create offers to existing participants
+                callData.participants.forEach(p => {
+                    if (p.user_id !== user?.id && p.is_active) {
+                        webrtc.createOffer(p.user_id, p.username);
+                    }
+                });
+            }
+        } catch (err) {
+            console.error('Failed to join call:', err);
+        } finally {
+            setIsJoiningCall(false);
+        }
+    };
+
+    // Leave call
+    const handleLeaveCall = async () => {
+        webrtc.endCall();
+        try {
+            await leaveCall(id);
+        } catch (err) {
+            console.error('Failed to leave call:', err);
+        }
+    };
 
     // Loading State
     if (isRoomLoading) {
@@ -124,6 +221,17 @@ export default function RoomPage() {
                 unreadCount={ws.unreadCount}
                 onLeave={handleLeave}
                 onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+                // Call controls in header
+                callButton={
+                    <CallButton
+                        activeCall={ws.activeCall}
+                        isInCall={webrtc.isInCall}
+                        isLoading={isJoiningCall}
+                        onStartVideoCall={handleStartVideoCall}
+                        onStartAudioCall={handleStartAudioCall}
+                        onJoinCall={handleJoinCall}
+                    />
+                }
             />
 
             {/* Main Stage (Content) - Gated by Join Status */}
@@ -142,20 +250,31 @@ export default function RoomPage() {
                         alignItems: 'center'
                     }}
                 >
-                    {/* Pomodoro Timer - Centered and Prominent */}
+                    {/* StudyStream-style Video Grid - Shows call participants */}
+                    <Box sx={{ width: '100%', maxWidth: 1000, mb: 4 }}>
+                        <StudyStreamGrid
+                            localStream={webrtc.localStream}
+                            isAudioEnabled={webrtc.isAudioEnabled}
+                            isVideoEnabled={webrtc.isVideoEnabled}
+                            isScreenSharing={webrtc.isScreenSharing}
+                            username={user?.username || ''}
+                            userId={user?.id || ''}
+                            remoteStreams={webrtc.remoteStreams}
+                            onToggleAudio={webrtc.toggleAudio}
+                            onToggleVideo={webrtc.toggleVideo}
+                            onToggleScreenShare={webrtc.toggleScreenShare}
+                            onLeaveCall={handleLeaveCall}
+                            isInCall={webrtc.isInCall}
+                            callParticipants={ws.callParticipants}
+                        />
+                    </Box>
+
+                    {/* Pomodoro Timer */}
                     <Box sx={{ width: '100%', maxWidth: 450, mb: 4 }}>
                         <PomodoroTimer
                             roomId={id}
                             session={ws.pomodoro}
                             canControl={canControlTimer}
-                        />
-                    </Box>
-
-                    {/* Online Users Grid - StudyStream style */}
-                    <Box sx={{ width: '100%', maxWidth: 800, mb: 4 }}>
-                        <OnlineUsersGrid
-                            users={ws.users}
-                            currentUserId={user?.id}
                         />
                     </Box>
 
@@ -215,3 +334,4 @@ export default function RoomPage() {
         </Box>
     );
 }
+

@@ -1,10 +1,12 @@
 import json
+import asyncio
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
 from django.core.cache import cache
 
 from .models import Room, Message
 from utils.encryption_service import EncryptionService
+
 
 class RoomConsumer(AsyncWebsocketConsumer):
     async def connect(self):
@@ -31,18 +33,78 @@ class RoomConsumer(AsyncWebsocketConsumer):
 
         await self.accept()
 
-        # Handle Presence
-        await self.add_user_to_room(self.room_id, self.user)
+        # Increment connection count and add to presence
+        await self.increment_user_connections(self.room_id, self.user)
+        print(f"[PRESENCE] User {self.user.username} connected to room {self.room_id}")
         await self.broadcast_presence()
 
     async def disconnect(self, close_code):
-        if self.user.is_authenticated:
-            await self.remove_user_from_room(self.room_id, self.user)
-            await self.broadcast_presence()
+        if hasattr(self, 'user') and self.user.is_authenticated:
+            # Decrement connection count, only remove from presence if count reaches 0
+            should_remove = await self.decrement_user_connections(self.room_id, self.user)
+            if should_remove:
+                await self.remove_user_from_room(self.room_id, self.user)
+                print(f"[PRESENCE] User {self.user.username} fully disconnected from room {self.room_id}")
+                await self.broadcast_presence()
+            else:
+                print(f"[PRESENCE] User {self.user.username} still has active connections")
 
-        await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
-        if self.user.is_authenticated:
+        if hasattr(self, 'room_group_name'):
+            await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
+        if hasattr(self, 'user') and self.user.is_authenticated and hasattr(self, 'user_group_name'):
             await self.channel_layer.group_discard(self.user_group_name, self.channel_name)
+
+    @database_sync_to_async
+    def increment_user_connections(self, room_id, user):
+        """Increment connection count for a user in a room. Also adds to presence list."""
+        from .models import RoomMembership
+        
+        # Get connection count key
+        conn_key = f"room:{room_id}:user:{user.id}:connections"
+        count = cache.get(conn_key, 0)
+        if count is None:
+            count = 0
+        count += 1
+        cache.set(conn_key, count, timeout=3600)
+        print(f"[CONN] User {user.username} connections: {count}")
+        
+        # Add to presence list
+        try:
+            membership = RoomMembership.objects.get(room_id=room_id, user=user)
+            role = membership.role
+        except RoomMembership.DoesNotExist:
+            role = 'member'
+        
+        key = f"room:{room_id}:online_users"
+        user_data = {
+            'id': str(user.id), 
+            'username': user.username,
+            'role': role
+        }
+        current_users = cache.get(key, {})
+        if current_users is None:
+            current_users = {}
+        current_users[str(user.id)] = user_data
+        cache.set(key, current_users, timeout=3600)
+        print(f"[CACHE] Added user {user.username} to cache. Total users: {len(current_users)}")
+
+    @database_sync_to_async
+    def decrement_user_connections(self, room_id, user):
+        """Decrement connection count. Returns True if user should be removed from presence."""
+        conn_key = f"room:{room_id}:user:{user.id}:connections"
+        count = cache.get(conn_key, 0)
+        if count is None:
+            count = 0
+        count = max(0, count - 1)
+        
+        if count == 0:
+            cache.delete(conn_key)
+            print(f"[CONN] User {user.username} connections: 0 (will remove)")
+            return True
+        else:
+            cache.set(conn_key, count, timeout=3600)
+            print(f"[CONN] User {user.username} connections: {count} (staying online)")
+            return False
 
     async def receive(self, text_data):
         data = json.loads(text_data)
@@ -791,23 +853,43 @@ class RoomConsumer(AsyncWebsocketConsumer):
             'username': user.username,
             'role': role
         }
-        current_users = cache.get(key, {})
-        current_users[str(user.id)] = user_data
-        cache.set(key, current_users, timeout=None)
+        try:
+            current_users = cache.get(key, {})
+            if current_users is None:
+                current_users = {}
+            current_users[str(user.id)] = user_data
+            cache.set(key, current_users, timeout=3600)  # 1 hour timeout
+            print(f"[CACHE] Added user {user.username} to cache. Total users: {len(current_users)}")
+        except Exception as e:
+            print(f"[CACHE ERROR] add_user_to_room: {e}")
 
     @database_sync_to_async
     def remove_user_from_room(self, room_id, user):
         key = f"room:{room_id}:online_users"
-        current_users = cache.get(key, {})
-        if str(user.id) in current_users:
-            del current_users[str(user.id)]
-            cache.set(key, current_users, timeout=None)
+        try:
+            current_users = cache.get(key, {})
+            if current_users is None:
+                current_users = {}
+            if str(user.id) in current_users:
+                del current_users[str(user.id)]
+                cache.set(key, current_users, timeout=3600)
+                print(f"[CACHE] Removed user {user.username}. Remaining users: {len(current_users)}")
+        except Exception as e:
+            print(f"[CACHE ERROR] remove_user_from_room: {e}")
             
     @database_sync_to_async
     def get_room_users(self, room_id):
         key = f"room:{room_id}:online_users"
-        data = cache.get(key, {})
-        return list(data.values())
+        try:
+            data = cache.get(key, {})
+            if data is None:
+                data = {}
+            users_list = list(data.values())
+            print(f"[CACHE] get_room_users for {room_id}: {len(users_list)} users")
+            return users_list
+        except Exception as e:
+            print(f"[CACHE ERROR] get_room_users: {e}")
+            return []
 
     # ========================================================================
     # WebRTC Signaling Handlers

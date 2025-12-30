@@ -221,3 +221,87 @@ export async function deleteRoomFile(roomId: string, fileId: string): Promise<vo
         method: 'DELETE'
     });
 }
+
+
+// ============================================================================
+// WebRTC Call API
+// ============================================================================
+
+export interface CallParticipant {
+    id: string;
+    user_id: string;
+    username: string;
+    is_audio_enabled: boolean;
+    is_video_enabled: boolean;
+    is_screen_sharing: boolean;
+    is_connected: boolean;
+    joined_at: string;
+    left_at: string | null;
+    is_active: boolean;
+}
+
+export interface CallSession {
+    id: string;
+    room: string;
+    call_type: 'audio' | 'video';
+    status: 'active' | 'ended';
+    initiated_by: string;
+    initiated_by_username: string;
+    started_at: string;
+    ended_at: string | null;
+    duration_seconds: number;
+    max_participants: number;
+    participant_count: number;
+    participants: CallParticipant[];
+}
+
+export interface ICEServerConfig {
+    iceServers: RTCIceServer[];
+    iceCandidatePoolSize: number;
+}
+
+/**
+ * Get active call in room
+ */
+export async function getRoomCall(roomId: string): Promise<CallSession | { active_call: null }> {
+    return apiClient<CallSession | { active_call: null }>(`/rooms/${roomId}/call/`);
+}
+
+/**
+ * Start or join a call
+ */
+export async function joinCall(
+    roomId: string,
+    options: { call_type?: 'audio' | 'video'; audio_enabled?: boolean; video_enabled?: boolean } = {}
+): Promise<CallSession> {
+    return apiClient<CallSession>(`/rooms/${roomId}/call/`, {
+        method: 'POST',
+        body: JSON.stringify(options)
+    });
+}
+
+/**
+ * Leave the current call
+ */
+export async function leaveCall(roomId: string): Promise<{ message: string }> {
+    return apiClient<{ message: string }>(`/rooms/${roomId}/call/leave/`, {
+        method: 'POST'
+    });
+}
+
+/**
+ * End the call (admin only)
+ */
+export async function endCall(roomId: string): Promise<{ message: string }> {
+    return apiClient<{ message: string }>(`/rooms/${roomId}/call/end/`, {
+        method: 'POST'
+    });
+}
+
+/**
+ * Get ICE server configuration
+ */
+export async function getICEServers(): Promise<ICEServerConfig> {
+    return apiClient<ICEServerConfig>('/rooms/ice-servers/');
+}
+

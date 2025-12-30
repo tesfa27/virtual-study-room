@@ -98,6 +98,10 @@ CHANNEL_LAYERS = {
         'CONFIG': {
             # 'redis' hostname from docker-compose
             "hosts": [(os.getenv('REDIS_HOST', 'redis'), int(os.getenv('REDIS_PORT', 6379)))],
+            # Increase capacity to prevent "over capacity" warnings
+            "capacity": 1500,
+            # Auto-expire stale messages after 60 seconds
+            "expiry": 60,
         },
     },
 }

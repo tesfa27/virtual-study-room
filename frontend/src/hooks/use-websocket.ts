@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { getRoomMessages, type ChatMessage, type PomodoroSession, getPomodoroSession, type RoomFile, getRoomFiles } from '../api/rooms';
+import { getRoomMessages, type ChatMessage, type PomodoroSession, getPomodoroSession, type RoomFile, getRoomFiles, type CallSession } from '../api/rooms';
 import { WS_URL } from '../api/config';
 import { getCookie } from '../api/client';
 
@@ -8,6 +8,12 @@ export interface OnlineUser {
     username: string;
     role?: string; // member, moderator, admin
 }
+
+// WebRTC signaling message type
+export type WebRTCSignalMessage = {
+    type: string;
+    [key: string]: any;
+};
 
 export const useWebSocket = (roomId: string) => {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -24,9 +30,20 @@ export const useWebSocket = (roomId: string) => {
     const [pomodoro, setPomodoro] = useState<PomodoroSession | null>(null);
     const [files, setFiles] = useState<RoomFile[]>([]);
 
+    // Call-related state
+    const [activeCall, setActiveCall] = useState<CallSession | null>(null);
+    const [callSignal, setCallSignal] = useState<WebRTCSignalMessage | null>(null);
+    // Track users who are in the active call (even if we're not joined)
+    const [callParticipants, setCallParticipants] = useState<{ id: string, username: string }[]>([]);
+
     useEffect(() => {
         if (!roomId) return;
-        // console.log(`Connecting to WebSocket for room ${roomId}`);
+
+        // Close existing connection before creating a new one
+        if (wsRef.current) {
+            wsRef.current.close();
+            wsRef.current = null;
+        }
 
         const token = getCookie('access_token');
         const wsUrl = `${WS_URL}/ws/room/${roomId}/?token=${token}`;
@@ -74,7 +91,8 @@ export const useWebSocket = (roomId: string) => {
 
             // Handle different message types
             if (data.type === 'presence_update') {
-                setUsers(data.users);
+                console.log('[WS] Presence update:', data.users?.length, 'users', data.users);
+                setUsers(data.users || []);
             } else if (data.type === 'message_update') {
                 // Update existing message
                 setMessages((prev) =>
@@ -200,6 +218,49 @@ export const useWebSocket = (roomId: string) => {
                 setFiles(prev => [data.data, ...prev]);
             } else if (data.type === 'file_deleted') {
                 setFiles(prev => prev.filter(f => f.id !== data.data.id));
+
+                // WebRTC Call Events
+            } else if (data.type === 'call_started') {
+                setActiveCall({
+                    id: data.call_id,
+                    room: roomId,
+                    call_type: data.call_type,
+                    status: 'active',
+                    initiated_by: data.initiated_by_id,
+                    initiated_by_username: data.initiated_by,
+                    started_at: new Date().toISOString(),
+                    ended_at: null,
+                    duration_seconds: 0,
+                    max_participants: 10,
+                    participant_count: 1,
+                    participants: [],
+                });
+                setCallSignal(data);
+            } else if (data.type === 'call_ended') {
+                setActiveCall(null);
+                setCallParticipants([]);  // Clear participants when call ends
+                setCallSignal(data);
+            } else if (data.type === 'call_participant_joined') {
+                setActiveCall(prev => prev ? { ...prev, participant_count: prev.participant_count + 1 } : null);
+                // Add to participants list
+                setCallParticipants(prev => {
+                    if (prev.some(p => p.id === data.user_id)) return prev;
+                    return [...prev, { id: data.user_id, username: data.username }];
+                });
+                setCallSignal(data);
+            } else if (data.type === 'call_participant_left') {
+                setActiveCall(prev => prev ? { ...prev, participant_count: Math.max(0, prev.participant_count - 1) } : null);
+                // Remove from participants list
+                setCallParticipants(prev => prev.filter(p => p.id !== data.user_id));
+                setCallSignal(data);
+            } else if (
+                data.type === 'webrtc_offer' ||
+                data.type === 'webrtc_answer' ||
+                data.type === 'ice_candidate' ||
+                data.type === 'call_media_toggle'
+            ) {
+                // Forward WebRTC signaling messages
+                setCallSignal(data);
             }
         };
 
@@ -350,6 +411,17 @@ export const useWebSocket = (roomId: string) => {
         }
     }, []);
 
+    // WebRTC Signaling
+    const sendSignal = useCallback((data: object) => {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify(data));
+        }
+    }, []);
+
+    const clearCallSignal = useCallback(() => {
+        setCallSignal(null);
+    }, []);
+
     return {
         messages,
         users,
@@ -372,7 +444,14 @@ export const useWebSocket = (roomId: string) => {
         isLoadingMore,
         isLoading,
         pomodoro,
-        files
+        files,
+        // Call-related
+        activeCall,
+        setActiveCall,
+        callSignal,
+        clearCallSignal,
+        sendSignal,
+        callParticipants,
     };
 };
 
