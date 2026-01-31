@@ -142,10 +142,17 @@ export const useWebRTC = ({ roomId, userId, username, sendSignal }: UseWebRTCOpt
         const pc = new RTCPeerConnection(config);
 
         // Add local tracks to connection
-        if (localStreamRef.current) {
-            localStreamRef.current.getTracks().forEach(track => {
-                pc.addTrack(track, localStreamRef.current!);
-            });
+        const tracks = localStreamRef.current ? localStreamRef.current.getTracks() : [];
+        tracks.forEach(track => {
+            pc.addTrack(track, localStreamRef.current!);
+        });
+
+        // Ensure we offer to receive media even if not sending
+        if (!tracks.some(t => t.kind === 'audio')) {
+            pc.addTransceiver('audio', { direction: 'recvonly' });
+        }
+        if (!tracks.some(t => t.kind === 'video')) {
+            pc.addTransceiver('video', { direction: 'recvonly' });
         }
 
         // Handle ICE candidates
@@ -219,13 +226,9 @@ export const useWebRTC = ({ roomId, userId, username, sendSignal }: UseWebRTCOpt
         try {
             setError(null);
 
-            // Always start with audio only (no video access until user enables it)
-            const stream = await getUserMedia(false);
-            localStreamRef.current = stream;
-            setLocalStream(stream);
-
-            // Disable audio by default too
-            stream.getAudioTracks().forEach(track => { track.enabled = false; });
+            // No media initially - user must enable audio/video explicitly
+            setLocalStream(null);
+            localStreamRef.current = null;
 
             setIsVideoEnabled(false);
             setIsAudioEnabled(false);
@@ -236,7 +239,7 @@ export const useWebRTC = ({ roomId, userId, username, sendSignal }: UseWebRTCOpt
             setError(err.message || 'Failed to start call');
             return false;
         }
-    }, [getUserMedia]);
+    }, []);
 
     // Create WebRTC Offer
     const createOffer = useCallback(async (targetUserId: string, targetUsername: string) => {
@@ -420,27 +423,69 @@ export const useWebRTC = ({ roomId, userId, username, sendSignal }: UseWebRTCOpt
     }, [handleOffer, handleAnswer, handleICECandidate, handleParticipantJoined, handleParticipantLeft, handleMediaToggle, handleCallStarted, handleCallEnded]);
 
     // Toggle audio
-    const toggleAudio = useCallback(() => {
-        if (localStreamRef.current) {
-            const audioTrack = localStreamRef.current.getAudioTracks()[0];
-            if (audioTrack) {
-                audioTrack.enabled = !audioTrack.enabled;
-                setIsAudioEnabled(audioTrack.enabled);
-                sendSignal({
-                    type: 'call_toggle_audio',
-                    enabled: audioTrack.enabled,
-                });
+    const toggleAudio = useCallback(async () => {
+        const hasAudioTrack = localStreamRef.current && localStreamRef.current.getAudioTracks().length > 0;
+
+        if (hasAudioTrack) {
+            const audioTrack = localStreamRef.current!.getAudioTracks()[0];
+            audioTrack.enabled = !audioTrack.enabled;
+            setIsAudioEnabled(audioTrack.enabled);
+            sendSignal({
+                type: 'call_toggle_audio',
+                enabled: audioTrack.enabled,
+            });
+        } else {
+            // Request microphone access for the first time
+            try {
+                const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                const newAudioTrack = audioStream.getAudioTracks()[0];
+
+                if (newAudioTrack) {
+                    if (!localStreamRef.current) {
+                        localStreamRef.current = new MediaStream();
+                    }
+
+                    localStreamRef.current.addTrack(newAudioTrack);
+
+                    // Trigger React update
+                    const updatedStream = new MediaStream(localStreamRef.current.getTracks());
+                    localStreamRef.current = updatedStream;
+                    setLocalStream(updatedStream);
+
+                    // Add to all peer connections and RENEGOTIATE
+                    for (const [peerId, { pc }] of peerConnectionsRef.current.entries()) {
+                        try {
+                            pc.addTrack(newAudioTrack, updatedStream);
+                            const offer = await pc.createOffer();
+                            await pc.setLocalDescription(offer);
+                            sendSignal({
+                                type: 'webrtc_offer',
+                                target_user_id: peerId,
+                                offer: pc.localDescription,
+                            });
+                        } catch (err) {
+                            console.error(`Failed to renegotiate audio with ${peerId}:`, err);
+                        }
+                    }
+
+                    setIsAudioEnabled(true);
+                    sendSignal({
+                        type: 'call_toggle_audio',
+                        enabled: true,
+                    });
+                }
+            } catch (err) {
+                console.error('Failed to get audio:', err);
             }
         }
     }, [sendSignal]);
 
     // Toggle video - requests camera access on first enable
     const toggleVideo = useCallback(async () => {
-        if (!localStreamRef.current) return;
+        const hasVideoTrack = localStreamRef.current && localStreamRef.current.getVideoTracks().length > 0;
 
-        const existingVideoTrack = localStreamRef.current.getVideoTracks()[0];
-
-        if (existingVideoTrack) {
+        if (hasVideoTrack) {
+            const existingVideoTrack = localStreamRef.current!.getVideoTracks()[0];
             // Toggle existing track
             existingVideoTrack.enabled = !existingVideoTrack.enabled;
             setIsVideoEnabled(existingVideoTrack.enabled);
@@ -460,7 +505,11 @@ export const useWebRTC = ({ roomId, userId, username, sendSignal }: UseWebRTCOpt
                 });
 
                 const newVideoTrack = videoStream.getVideoTracks()[0];
-                if (newVideoTrack && localStreamRef.current) {
+                if (newVideoTrack) {
+                    if (!localStreamRef.current) {
+                        localStreamRef.current = new MediaStream();
+                    }
+
                     // Add to local stream
                     localStreamRef.current.addTrack(newVideoTrack);
 
@@ -613,5 +662,7 @@ export const useWebRTC = ({ roomId, userId, username, sendSignal }: UseWebRTCOpt
         toggleVideo,
         toggleScreenShare,
         handleSignalingMessage,
+        createOffer,
+        setCallSession: setActiveCall,
     };
 };

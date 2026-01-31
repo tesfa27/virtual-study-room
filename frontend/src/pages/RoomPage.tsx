@@ -145,7 +145,7 @@ export default function RoomPage() {
 
     // Leave call
     const handleLeaveCall = async () => {
-        webrtc.endCall();
+        webrtc.leaveCall();
         try {
             await leaveCall(id);
         } catch (err) {
@@ -230,6 +230,7 @@ export default function RoomPage() {
                         onStartVideoCall={handleStartVideoCall}
                         onStartAudioCall={handleStartAudioCall}
                         onJoinCall={handleJoinCall}
+                        onLeaveCall={handleLeaveCall}
                     />
                 }
             />
